@@ -1,0 +1,63 @@
+{
+  "summary": "Full e2e verification of Edora v2 (FastAPI+Mongo+React). Backend: 37 pytest cases in /app/backend/tests (auth/JWT cookies, role guard, curriculum, selector generation & diversity, publish, student sanitized payload, server-authoritative integrity, real LLM grading, dashboard/analytics) -> 34 passed / 3 failed (92%). Frontend: teacher login -> dashboard live stats OK; Published Exams / Attempts drawer / Analytics (real AI insight) OK; full student flow (code -> skip photo -> instructions -> answer MCQ+descriptive -> submit) OK with REAL AI grading (2 AI-graded, per-question feedback, integrity 97 after a blur event). BLOCKER: the Generate Exam page cannot generate at all - the frontend posts a FLAT form while the backend Blueprint expects nested curriculum/config -> 422, so no variants and no publish possible from the UI (I published via API to test the rest of the flow).",
+  "backend_issues": {
+    "critical": [
+      {"endpoint": "POST /api/auth/register", "issue": "Open self-registration accepts role='teacher'. Any anonymous user can create a teacher account and then read /api/dashboard/stats, /api/exams (incl. correctAnswer keys), /api/attempts. Verified live: register with role=teacher returned 200 + teacher role. Restrict role assignment (default student, teacher only via invite/admin).", "priority": "CRITICAL"},
+      {"endpoint": "POST /api/exams/publish", "issue": "Publish re-runs the selector instead of persisting the previewed variant. For variantIndex>0 the seed offset (base_seed + i*7919) is applied a second time, so the published paper is NOT the variant the teacher reviewed (test_publish_variant_index_1_matches_preview fails; index 0 matches). Persist the previewed questions (or send qids/seed base) instead of regenerating.", "priority": "HIGH"}
+    ],
+    "minor": [
+      {"endpoint": "GET /api/attempts/{id}, POST /api/student/{id}/integrity", "issue": "Malformed id -> bson.errors.InvalidId -> HTTP 500. Validate ObjectId and return 400/404."},
+      {"endpoint": "POST /api/auth/login", "issue": "No brute-force lockout/rate limiting: 7 consecutive wrong passwords all return 401 (playbook expects 423/429 after 5 fails)."},
+      {"endpoint": "POST /api/student/{id}/integrity, /submit", "issue": "Unauthenticated and unbound to a session token - anyone holding an attemptId can inject integrity events or submit answers for that attempt. Issue a per-attempt token on /student/start."},
+      {"endpoint": "POST /api/exams/generate", "issue": "Raw Pydantic 422 detail is surfaced to the user as 'Field required Field required' - no meaningful message."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "GenerateExam", "issue": "BLOCKER: 'Generate Exam' always fails. api.post('/exams/generate', {...form}) sends a flat payload (subject/chapters/totalMarks/duration at root) but Blueprint requires nested curriculum{board,grade,subject,chapters} and config{totalMarks,duration} -> HTTP 422, toast shows 'Field required Field required', no variants, publish-button never rendered. Same mapping bug applies to publish().", "selector": "[data-testid=\"generate-button\"]", "priority": "CRITICAL"}
+    ],
+    "integration_issues": [
+      {"flow": "Teacher generate -> publish -> share code", "issue": "Cannot be completed through the UI because of the 422 above; teacher can never obtain a join code. Verified working only via direct API calls.", "affected_selectors": ["[data-testid=\"generate-button\"]", "[data-testid=\"publish-button\"]", "[data-testid=\"published-code\"]"]}
+    ],
+    "design_issues": [
+      {"screen": "Login/Dashboard toast", "issues": ["Toast greets teacher as 'Welcome, Dr.' (name.split(' ')[0] on 'Dr. Sarah Chen') - broken microcopy"]},
+      {"screen": "Student /exam join", "issues": ["Logged-in student is redirected to /exam but the name field is empty with their name only as placeholder ('Aarav Sharma') - should be prefilled from the session"]},
+      {"screen": "Generate Exam", "issues": ["Question Type Mix inputs render values but the label row shows a bare '%' with no per-field validation feedback when the mix != 100%; failure state relies solely on a transient toast"]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_edora_backend.py",
+    "/app/backend/tests/conftest.py",
+    "/app/backend/tests/cleanup_test_data.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "FIX FIRST: map the GenerateExam form to the Blueprint schema (nest curriculum{board,grade,subject,chapters} + config{totalMarks,duration,questionCount}) in both generate() and publish() in /app/frontend/src/pages/GenerateExam.js — currently the whole teacher authoring flow is dead.",
+    "Block role escalation in POST /api/auth/register (force role='student' for public signup).",
+    "Make publish persist the exact previewed variant (pass qids or the exact variant seed without re-offsetting by variantIndex).",
+    "Guard ObjectId parsing in /api/attempts/{id} and /api/student/{id}/* to avoid 500s.",
+    "Add login rate limiting / lockout after 5 failed attempts (playbook requirement).",
+    "Bind student attempt mutations (/integrity, /submit) to a per-attempt token returned by /student/start.",
+    "Show friendly validation errors instead of raw Pydantic 'Field required'."
+  ],
+  "critical_code_review_comments": [
+    "server.py: identical avg-score aggregation pipeline is duplicated 4x (list_exams, dashboard_stats x2, analytics) — extract an async helper.",
+    "server.py: uses deprecated @app.on_event('startup'); migrate to lifespan.",
+    "server.py: CORS middleware is added AFTER include_router — works, but should be registered before routes for clarity; allow_origins is a single FRONTEND_URL (correct, credentials-safe).",
+    "server.py /api/exams/{code} returns full documents incl. correctAnswer to teachers (acceptable) but /api/exams/generate also returns answer keys in the preview payload — fine for teachers, keep the require_teacher guard.",
+    "analytics: calls the LLM on every request with no caching — page load takes ~5-9s and burns tokens.",
+    "auth.py: cookies use secure=True + samesite='none' (correct for the preview domain); clear_auth_cookies must pass the same samesite/secure flags or logout may not clear cookies in some browsers."
+  ],
+  "updated_files": [
+    "/app/backend/tests/conftest.py",
+    "/app/backend/tests/test_edora_backend.py",
+    "/app/backend/tests/cleanup_test_data.py"
+  ],
+  "success_rate": {"backend": "92% (34/37)", "frontend": "80% (student flow + all teacher read pages pass; exam authoring flow broken)"},
+  "seed_data_creation": "Seeder verified: 850 questions, all 6 question types present, teacher/student users with $2b$ bcrypt hashes. QA created TEST_ exams/attempts and a qa_elev user during testing — all removed afterwards via /app/backend/tests/cleanup_test_data.py, so exam/attempt collections are back to empty.",
+  "should_call_test_agent_after_fix": true,
+  "should_main_agent_self_test": false,
+  "test_credentials": "teacher@edora.io / Edora@2026 (teacher), student@edora.io / Student@2026 (student) — both valid, login sets HttpOnly access_token+refresh_token cookies.",
+  "context_for_next_testing_agent": "Run `pytest /app/backend/tests -q` (37 tests). Known-fail tests encode the open bugs: test_generate_flat_payload_rejected (frontend payload contract), test_publish_variant_index_1_matches_preview, test_brute_force_lockout. Exams/attempts were cleaned, so publish an exam first (POST /api/exams/publish with a nested blueprint) before student-flow UI tests. Student flow selectors: exam-code-input, student-name-input, continue-identity-button, skip-photo-button, begin-exam-button, option-A, answer-textarea, next-question, submit-exam-button, student-result (NOTE: there is no 'next-question-button', it is 'next-question'). AI grading of a 2-descriptive-question paper completes in ~10-15s.",
+  "rca_of_the_issue": "Generate blocker: /app/frontend/src/pages/GenerateExam.js keeps a flat form state ({subject, chapters, totalMarks, duration, ...}) and posts it verbatim (`api.post('/exams/generate', {...form, seed: null})`), while backend models.Blueprint requires nested `curriculum` and `config` objects -> FastAPI returns 422 'Field required' for both. Publish mismatch: publish() sends blueprint.seed = variants[i].seed together with variantIndex=i; server calls select_variants(base_seed=that seed) and then picks index i, which internally seeds with base_seed + i*7919, i.e. a different RNG stream than the previewed variant for i>0."
+}

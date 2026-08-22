@@ -1,0 +1,40 @@
+{
+  "summary": "Iteration-2 re-test of Edora v2 after iteration-1 fixes. Backend: 42 pytest cases run against the public preview URL (41 pass, 1 fail). Frontend: full teacher flow (login -> dashboard -> generate -> publish) and full student flow (code -> skip photo -> begin -> answer 6 MCQ + 18 descriptive -> submit -> result with real AI grading), plus teacher attempts drawer and analytics, driven with Playwright. All iteration-1 blockers are fixed EXCEPT brute-force lockout, which is still ineffective in this deployment (RCA below).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/auth/login", "issue": "Brute-force lockout never triggers behind the k8s ingress: attempt counter key is f\"{request.client.host}:{email}\" and client.host is the ingress pod IP which rotates (observed 10.208.135.204 / .205), so counts split across keys and never reach 5. 6 consecutive wrong passwords returned 401,401,401,401,401,401 (no 423). Verified in Mongo: two login_attempts docs for the same email with count 3 and 3. Fix: key the counter on the normalized email only (optionally plus X-Forwarded-For first hop), and add a TTL/reset."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_edora_backend.py",
+    "/app/backend/tests/conftest.py",
+    "/app/backend/tests/cleanup_test_data.py",
+    "/app/test_reports/pytest/iteration_2.xml"
+  ],
+  "action_items": [
+    "Fix login lockout key: use email (and/or X-Forwarded-For) instead of request.client.host so 5 failed attempts return HTTP 423 behind the ingress."
+  ],
+  "critical_code_review_comments": [
+    "server.py login(): request.client.host is the reverse-proxy IP in this environment; any per-IP rate limiting/lockout is unreliable. Key on email + optionally X-Forwarded-For, and add a TTL index on login_attempts so records self-expire.",
+    "POST /api/exams/publish trusts arbitrary qids and never validates them against the blueprint/pool; a teacher can publish any question ids and totalMarks is recomputed from them. Low risk (teacher-only) but worth validating qids belong to the requested curriculum.",
+    "submit(): gradedDetails is built objectives-first then descriptives, so the stored/returned order differs from the exam question order (student result and teacher drawer show a reordered paper). Consider preserving the original question order.",
+    "server.py is 545 lines and still fine, but attempt-token handling is duplicated in integrity/submit — it is already factored into _load_attempt_authorized, good; keep that pattern."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_edora_backend.py",
+    "/app/backend/tests/cleanup_test_data.py"
+  ],
+  "success_rate": {"backend": "97.6% (41/42)", "frontend": "100% of tested flows"},
+  "seed_data_creation": "Transient: TEST_Exam blueprints/publishes, attempts TEST_Grader/TEST_Sec/TEST_Token/TEST_Integrity/TEST_UIStudent, throwaway register users test_esc_*. All removed via /app/backend/tests/cleanup_test_data.py (only the UI-published 'Class 10 Term Exam' + seeded data remain).",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": true,
+  "test_credentials": "teacher@edora.io / Edora@2026 ; student@edora.io / Student@2026 (from /app/memory/test_credentials.md)",
+  "context_for_next_testing_agent": "Verified this iteration: (1) /generate UI sends nested blueprint -> 2 variants, 100% marks/type compliance, no variant warnings; Publish returns join code (e.g. CJYK4N). (2) register with role='teacher' returns role 'student' and gets 403 on /dashboard/stats. (3) publish persists exactly the supplied qids for variantIndex 0 and 1, variantLabel stored; empty qids -> 400. (4) malformed ObjectId on GET /attempts/{id}, POST /student/{id}/integrity|/submit -> 404. (5) attemptToken enforced: wrong token -> 403, missing token -> 422, correct -> 200; token not leaked in GET /attempts/{id}. (6) /student/start hides correctAnswer/answer. (7) Full student UI flow: 24 questions, 18 AI-graded with real per-question LLM feedback, integrity 100, result card correct; teacher drawer shows the same AI feedback; analytics AI insight stable across calls (cached). (8) Greeting shows 'Welcome, Sarah' (no 'Dr.' truncation); student name prefilled on /exam (earlier 'fail' was a test race — must wait for /auth/me to resolve before reading the input). ONLY open defect: test_brute_force_lockout_423 (per-IP key issue). Bcrypt hashes are $2b$, login sets HttpOnly access_token + refresh_token cookies, CORS uses explicit FRONTEND_URL with allow_credentials.",
+  "rca_of_the_issue": "Brute-force lockout: server.py builds the throttle key as f\"{request.client.host}:{email}\". In this Kubernetes preview, requests arrive from multiple ingress/proxy pods, so request.client.host alternates between at least two IPs. Each wrong login increments a different login_attempts document, so no document reaches count>=5 and locked_until stays 0 — 423 is never returned. Reproduction: POST /api/auth/login 6x with a bogus password for the same email -> all 401; db.login_attempts then contains 2 docs for that email with counts summing to 6."
+}

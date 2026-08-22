@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="3" skipped="0" tests="37" time="16.895" timestamp="2026-08-22T15:09:51.491102+00:00" hostname="agent-env-1180227c-a576-4f17-9230-24259052afd6"><testcase classname="tests.test_edora_backend" name="test_health" time="0.206" /><testcase classname="tests.test_edora_backend.TestAuth" name="test_login_teacher_sets_httponly_cookies" time="0.309" /><testcase classname="tests.test_edora_backend.TestAuth" name="test_login_invalid_password" time="0.310" /><testcase classname="tests.test_edora_backend.TestAuth" name="test_me_requires_auth" time="0.103" /><testcase classname="tests.test_edora_backend.TestAuth" name="test_me_teacher" time="0.399" /><testcase classname="tests.test_edora_backend.TestAuth" name="test_bcrypt_hash_format" time="0.082" /><testcase classname="tests.test_edora_backend.TestAuth" name="test_brute_force_lockout" time="2.021"><failure message="AssertionError: no lockout, codes=[401, 401, 401, 401, 401, 401, 401]&#10;assert (423 in [401, 401, 401, 401, 401, 401, ...] or 429 in [401, 401, 401, 401, 401, 401, ...])">self = &lt;test_edora_backend.TestAuth object at 0xf947b105ea50&gt;
+anon_client = &lt;requests.sessions.Session object at 0xf947b105f1d0&gt;
+
+    def test_brute_force_lockout(self, anon_client):
+        """Playbook: account should lock after 5 failed attempts."""
+        s = requests.Session()
+        codes = []
+        for _ in range(7):
+            r = s.post(f"{API}/auth/login",
+                       json={"email": STUDENT["email"], "password": "bad-pass-x"}, timeout=30)
+            codes.append(r.status_code)
+&gt;       assert 423 in codes or 429 in codes, f"no lockout, codes={codes}"
+E       AssertionError: no lockout, codes=[401, 401, 401, 401, 401, 401, 401]
+E       assert (423 in [401, 401, 401, 401, 401, 401, ...] or 429 in [401, 401, 401, 401, 401, 401, ...])
+
+tests/test_edora_backend.py:75: AssertionError</failure></testcase><testcase classname="tests.test_edora_backend.TestRoleGuard" name="test_student_blocked_get[/dashboard/stats]" time="0.413" /><testcase classname="tests.test_edora_backend.TestRoleGuard" name="test_student_blocked_get[/exams]" time="0.089" /><testcase classname="tests.test_edora_backend.TestRoleGuard" name="test_student_blocked_get[/attempts]" time="0.058" /><testcase classname="tests.test_edora_backend.TestRoleGuard" name="test_student_blocked_get[/analytics]" time="0.060" /><testcase classname="tests.test_edora_backend.TestRoleGuard" name="test_student_blocked_get[/questions/stats]" time="0.069" /><testcase classname="tests.test_edora_backend.TestRoleGuard" name="test_student_blocked_generate" time="0.057" /><testcase classname="tests.test_edora_backend.TestRoleGuard" name="test_anon_blocked" time="0.214" /><testcase classname="tests.test_edora_backend.TestCurriculum" name="test_curriculum" time="0.065" /><testcase classname="tests.test_edora_backend.TestCurriculum" name="test_question_stats_six_types" time="0.066" /><testcase classname="tests.test_edora_backend.TestGeneration" name="test_generate_variants_compliance_and_types" time="0.089" /><testcase classname="tests.test_edora_backend.TestGeneration" name="test_generate_diversity_low_overlap" time="0.109" /><testcase classname="tests.test_edora_backend.TestGeneration" name="test_generate_not_deterministic" time="0.131" /><testcase classname="tests.test_edora_backend.TestGeneration" name="test_generate_seed_reproducible" time="0.122" /><testcase classname="tests.test_edora_backend.TestGeneration" name="test_generate_bad_curriculum_400" time="0.066" /><testcase classname="tests.test_edora_backend.TestGeneration" name="test_generate_flat_payload_rejected" time="0.058"><failure message="AssertionError: flat frontend payload rejected (422): {&quot;detail&quot;:[{&quot;type&quot;:&quot;missing&quot;,&quot;loc&quot;:[&quot;body&quot;,&quot;curriculum&quot;],&quot;msg&quot;:&quot;Field required&quot;,&quot;input&quot;:{&quot;name&quot;:&quot;TEST_flat&quot;,&quot;subject&quot;:&quot;Mathematics&quot;,&quot;chapters&quot;:[],&quot;totalMarks&quot;:40,&quot;duration&quot;:90,&quot;difficulty&quot;:{&quot;easy&quot;:30,&quot;medium&quot;:50,&quot;hard&quot;:20},&quot;questionTypes&quot;:{&quot;mcq&quot;:20,&quot;assertion&quot;:10,&quot;veryShort&quot;:15,&quot;short&quot;:25,&quot;long&quot;:15,&#10;assert 422 == 200&#10; +  where 422 = &lt;Response [422]&gt;.status_code">self = &lt;test_edora_backend.TestGeneration object at 0xf947b106fa10&gt;
+teacher_client = &lt;requests.sessions.Session object at 0xf947b12c1110&gt;
+
+    def test_generate_flat_payload_rejected(self, teacher_client):
+        """Frontend GenerateExam.js posts a FLAT form; document the schema contract."""
+        flat = {"name": "TEST_flat", "subject": "Mathematics", "chapters": [],
+                "totalMarks": 40, "duration": 90,
+                "difficulty": {"easy": 30, "medium": 50, "hard": 20},
+                "questionTypes": {"mcq": 20, "assertion": 10, "veryShort": 15,
+                                  "short": 25, "long": 15, "caseStudy": 15},
+                "variants": 2, "seed": None}
+        r = teacher_client.post(f"{API}/exams/generate", json=flat, timeout=60)
+&gt;       assert r.status_code == 200, (
+            f"flat frontend payload rejected ({r.status_code}): {r.text[:300]}")
+E       AssertionError: flat frontend payload rejected (422): {"detail":[{"type":"missing","loc":["body","curriculum"],"msg":"Field required","input":{"name":"TEST_flat","subject":"Mathematics","chapters":[],"totalMarks":40,"duration":90,"difficulty":{"easy":30,"medium":50,"hard":20},"questionTypes":{"mcq":20,"assertion":10,"veryShort":15,"short":25,"long":15,
+E       assert 422 == 200
+E        +  where 422 = &lt;Response [422]&gt;.status_code
+
+tests/test_edora_backend.py:170: AssertionError</failure></testcase><testcase classname="tests.test_edora_backend.TestPublish" name="test_publish_returns_code" time="0.543" /><testcase classname="tests.test_edora_backend.TestPublish" name="test_published_matches_preview" time="0.081" /><testcase classname="tests.test_edora_backend.TestPublish" name="test_publish_variant_index_1_matches_preview" time="0.188"><failure message="AssertionError: publish re-generates a different paper than the previewed variant&#10;assert ['c9ae22003c1...4a35250', ...] == ['bd212b18ac1...777c05f', ...]&#10;  &#10;  At index 0 diff: 'c9ae22003c10b532f253' != 'bd212b18ac1009782a5e'&#10;  Use -v to get more diff">self = &lt;test_edora_backend.TestPublish object at 0xf947b1079010&gt;
+teacher_client = &lt;requests.sessions.Session object at 0xf947b12c1110&gt;
+
+    def test_publish_variant_index_1_matches_preview(self, teacher_client):
+        bp = blueprint("Mathematics", marks=20, variants=2, seed=13579)
+        g = teacher_client.post(f"{API}/exams/generate", json=bp, timeout=90).json()
+        v1 = g["variants"][1]
+        bp2 = dict(bp)
+        bp2["seed"] = v1["seed"]  # mirrors frontend publish() behaviour
+        p = teacher_client.post(f"{API}/exams/publish",
+                                json={"blueprint": bp2, "variantIndex": 1}, timeout=90)
+        assert p.status_code == 200, p.text
+        exam = teacher_client.get(f"{API}/exams/{p.json()['code']}", timeout=30).json()
+&gt;       assert [q["qid"] for q in exam["questions"]] == [q["qid"] for q in v1["questions"]], \
+            "publish re-generates a different paper than the previewed variant"
+E       AssertionError: publish re-generates a different paper than the previewed variant
+E       assert ['c9ae22003c1...4a35250', ...] == ['bd212b18ac1...777c05f', ...]
+E         
+E         At index 0 diff: 'c9ae22003c10b532f253' != 'bd212b18ac1009782a5e'
+E         Use -v to get more diff
+
+tests/test_edora_backend.py:216: AssertionError</failure></testcase><testcase classname="tests.test_edora_backend.TestPublish" name="test_exam_appears_in_list" time="0.085" /><testcase classname="tests.test_edora_backend.TestPublish" name="test_get_exam_404" time="0.083" /><testcase classname="tests.test_edora_backend.TestStudentSecurity" name="test_start_hides_answer_keys" time="0.117" /><testcase classname="tests.test_edora_backend.TestStudentSecurity" name="test_start_invalid_code_404" time="0.108" /><testcase classname="tests.test_edora_backend.TestStudentSecurity" name="test_student_cannot_set_integrity_score" time="0.340" /><testcase classname="tests.test_edora_backend.TestGradingFlow" name="test_submit_scores" time="8.409" /><testcase classname="tests.test_edora_backend.TestGradingFlow" name="test_ai_graded_descriptives" time="0.000" /><testcase classname="tests.test_edora_backend.TestGradingFlow" name="test_objective_graded_server_side" time="0.000" /><testcase classname="tests.test_edora_backend.TestGradingFlow" name="test_double_submit_rejected" time="0.159" /><testcase classname="tests.test_edora_backend.TestGradingFlow" name="test_attempt_visible_to_teacher" time="0.119" /><testcase classname="tests.test_edora_backend.TestGradingFlow" name="test_dashboard_reflects_real_data" time="0.071" /><testcase classname="tests.test_edora_backend.TestGradingFlow" name="test_analytics" time="1.427" /></testsuite></testsuites>

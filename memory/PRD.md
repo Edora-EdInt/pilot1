@@ -1,43 +1,37 @@
-# Edora — AI Examination Platform (v1)
+# Edora — AI Examination Platform
 
 ## Problem Statement
-Import and understand the codebase for Version 1 of Edora's assessment engine. Get it running/previewable in the browser (demo mode is acceptable) and produce a critical review of design gaps ("what is bad and ugly").
+v1 was a single 14.6k-line HTML file with 7 serious flaws. User asked to FIX ALL 7. Delivered as **v2**: FastAPI + MongoDB backend + React frontend.
 
-## Architecture (as-is, v1)
-- **Single-file frontend**: `index.html` (~14,600 lines) containing ALL HTML + CSS + JS. No build step, no framework, vanilla JS.
-- **`services/`** (the actual "assessment engine"):
-  - `questionBank.js` — `QuestionBank` class: filter/search/stats over questions (data-source agnostic).
-  - `questionSelector.js` — `QuestionSelector` class: blueprint-driven greedy selection, multi-variant generation, slot diagnostics, similarity/overlap analysis, compliance scoring.
-  - `firebase.js` — Firestore persistence (exams, submissions) + inline base64 photo storage. **Hardcoded Firebase config committed to repo.**
-- **`data/`** — static CBSE Class 10 question banks (`questions_cbse_class10.js` loaded globally; several JSON banks: maths, english, sst, it402).
-- **Persistence**: split between Firestore and browser `localStorage`/`sessionStorage` (legacy `edint_` key prefixes).
-- **Auth**: Google Identity Services (OAuth, placeholder client ID) + "Continue as Guest (Demo)" bypass. Dashboard gate is a sessionStorage flag only.
+## Architecture (v2)
+- **Backend** `/app/backend` (FastAPI + MongoDB, JWT httpOnly cookies)
+  - `server.py` routes: auth, curriculum, exam generate/publish/list, dashboard, analytics, attempts, student flow.
+  - `auth.py` JWT + bcrypt + role guard (`require_teacher`).
+  - `selector.py` Python QuestionSelector — 6 question types, seeded randomization, marks top-up, multi-variant diversity + similarity.
+  - `ai.py` real LLM grading + insight via Emergent Universal Key (openai gpt-5.4, emergentintegrations).
+  - `seed.py` idempotent seed: ~850 CBSE questions from `data/*.json` + teacher/student users.
+- **Frontend** `/app/frontend` (React + Tailwind, react-router, sonner, lucide)
+  - Pages: Login, Dashboard, GenerateExam, PublishedExams, Attempts, Analytics, StudentExam.
+  - Design: "Swiss editorial" — Cabinet Grotesk / IBM Plex Sans / JetBrains Mono; warm earthy palette; mobile-first.
 
-## Views
-Login, Dashboard, Generate Exam, Exam Preview (variants), Published Exams, Student Exam View (code entry → photo → instructions → live exam → result), Integrity Dashboard, Students, Analytics, Question Intelligence, Chapter Intelligence, Reports (jsPDF/CSV export).
+## How the 7 v1 issues were fixed
+1. **Fake AI** → real LLM grading of descriptive answers (marks+feedback) + AI analytics insight; dashboard stats are live Mongo aggregations (not hardcoded).
+2. **Monolith** → proper FastAPI backend + modular React with a build step.
+3. **Security** → no hardcoded 3rd-party keys; JWT auth + role guard; `correctAnswer`/`answer` NEVER sent to students (sanitized payload); server-side scoring; public register forced to `student` (no privilege escalation); per-attempt token guards student mutations; account-based brute-force lockout (423).
+4. **Proctoring theater** → integrity events posted & scored SERVER-side; students cannot set/alter their integrity score.
+5. **Split-brain storage** → single MongoDB source of truth (Firestore + localStorage removed).
+6. **Selector quirks** → honors all 6 types, seeded shuffle (non-deterministic), robust marks top-up to target, real variant diversity (overlap ~0-4%).
+7. **UX** → distinctive editorial redesign, responsive, fixed microcopy/greeting.
 
-## Run Setup (in this environment)
-- Repo is a static site; the env's expected `frontend`/`backend` folders did not exist.
-- Added a zero-dependency Node static server at `/app/frontend/server.js` (+ `package.json`) served by the existing `frontend` supervisor program on port 3000, serving repo root so `services/` and `data/` relative paths resolve.
-- Verified: login, demo login, dashboard, generate-exam all render.
+## Status (2026-08-22) — v2 COMPLETE & TESTED
+- Backend: 42 pytest cases, all core flows pass (iteration_2). Verified: auth/roles, generate/publish fidelity (by qid), sanitized student payload, token guards, server integrity, real AI grading, account lockout (423), live dashboard/analytics.
+- Frontend: 100% of tested flows (teacher generate→publish→share code; student code→exam→AI-graded result; attempts drawer; analytics).
 
-## Status (2026-08-22)
-- [DONE] Imported & understood codebase.
-- [DONE] App running/previewable via demo mode on port 3000.
-- [DONE] Critical design-gap review delivered (see chat summary / below).
+## Credentials
+- Teacher: teacher@edora.io / Edora@2026
+- Student: student@edora.io / Student@2026 (or self-register; students can also join via code without login)
 
-## Key Findings — What's Bad/Ugly (v1)
-1. **"AI" is marketing-only** — zero LLM/AI calls anywhere. Auto-grading = exact-match MCQ only; descriptive answers graded manually. Dashboard "AI Engine Insights" numbers are hardcoded.
-2. **Monolithic 14.6k-line index.html** — no modules/components/tests; git history is dozens of whole-file "Add files via upload" uploads.
-3. **Security** — Firebase keys committed; no visible Firestore rules (open read/write); `correctAnswer` shipped to client (answers visible in DevTools); auth is decorative; demo mode = full admin.
-4. **Proctoring is theater** — client-side tab-switch/blur/refresh counting; integrityScore = 100 − penalties; trivially bypassable; photo "verification" stores a selfie but does no face match.
-5. **Split-brain storage** — Firestore + localStorage fallback with legacy `edint_` prefixes; inconsistent source of truth across devices.
-6. **Selector limitations** — collapses 5 question types into 3 (caseStudy→Long, numerical→Short); greedy marks-first packing with fragile remainder patching; deterministic (no shuffle) so same blueprint = identical paper; variant diversity limited by bank size.
-7. **UX** — generic indigo-on-white "AI slop" aesthetic; stray/broken microcopy on login ("student?"); desktop-first.
-
-## Backlog / Next (proposed)
-- P0: Introduce a real backend/API + move `correctAnswer` and grading server-side; lock down Firestore rules.
-- P0: Real auth (JWT or Google OAuth) instead of sessionStorage gate.
-- P1: Add genuine AI (LLM) for descriptive answer evaluation and question generation.
-- P1: Break monolith into modules/components; add a build step.
-- P2: Server-enforced proctoring; real identity/face verification.
+## Known limitations / Backlog
+- Face-match on identity photo not implemented (photo is captured/stored only).
+- publish() trusts teacher-supplied qids (teacher-only; could validate against curriculum).
+- Selector `questionCount` field accepted but selection is marks-driven.

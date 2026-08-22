@@ -1,0 +1,102 @@
+{
+  "theme_strategy": "Swiss Editorial High-Contrast with Earthy Undertones",
+  "project_context": "Edora v2 - AI-powered examination platform. Needs to avoid generic AI-slop, desktop-first issues, and broken microcopy from v1.",
+  "typography": {
+    "headings": {
+      "family": "Cabinet Grotesk",
+      "fallback": "sans-serif",
+      "rules": "Must use tracking-tight or tracking-tighter for sizes > 32px. Absolutely NO Inter font. Keep font-weights varied (Light for elegance, Black for impact)."
+    },
+    "body": {
+      "family": "IBM Plex Sans",
+      "fallback": "sans-serif",
+      "rules": "Clean, legible, loose line height (leading-relaxed) for student exam reading."
+    },
+    "mono": {
+      "family": "JetBrains Mono",
+      "rules": "Mandatory for live stats, timer, code entry, and AI grading metrics."
+    }
+  },
+  "colors": {
+    "background_app": "#F9F8F6",
+    "surface": "#FFFFFF",
+    "text_primary": "#1C1C19",
+    "text_secondary": "#5C5C54",
+    "primary": "#D95D39",
+    "primary_hover": "#B84A2C",
+    "secondary": "#2A4747",
+    "secondary_hover": "#1F3535",
+    "accent": "#E6B89C",
+    "border": "#E5E5E0",
+    "danger": "#D32F2F",
+    "success": "#2E7D32",
+    "rules": "Never use pure black or pure white without intention. Completely avoid indigo-on-white AI slop. Banned: Teal green, Teal blue, pure indigo, #7351B7. Do NOT use dark colors as gradients."
+  },
+  "layouts": {
+    "global": {
+      "rules": "Mobile-first strictly. No `.App { text-align: center; }`. Optical alignment over geometrical."
+    },
+    "teacher_dashboard": {
+      "style": "Grid Borders (The 'Technical' Look)",
+      "spacing": "Tight (gap-4/6), highly dense data.",
+      "components": "Go cardless or use 1px subtle borders without massive shadows. Strip standard Vercel look from Shadcn components. Use Bento grid logic."
+    },
+    "student_exam": {
+      "style": "Zen-mode / Paper View",
+      "spacing": "Generous spacing philosophy (2-3x typical). Max-width containers centered. p-8 to p-12.",
+      "components": "Distraction-free. No transparent headers. Subtle progress bars, large readable typography for questions."
+    }
+  },
+  "motion": {
+    "rules": "Hover states on all interactive elements. Click/press states. Smooth staggered entrances for exam questions. NO 'transition-all'."
+  },
+  "accessibility": {
+    "rules": "Minimum 4.5:1 contrast. Focus states must have higher contrast (e.g. focus:ring-2 focus:ring-primary focus:outline-none). All interactive and key informational elements MUST have data-testid attributes (kebab-case, role-based)."
+  },
+  "visual_enhancers": {
+    "textures": "Subtle grain textures/noise on the login page background.",
+    "icons": "Use 'lucide-react' (installed). Do NOT use AI emoji characters (🤖🧠💭). Keep strokes crisp (1.5px)."
+  },
+  "image_urls": {
+    "login_background": {
+      "url": "https://images.pexels.com/photos/7092515/pexels-photo-7092515.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+      "description": "Student focused on exam, use for login/register split screen. Ensure heavy overlay (bg-black/40) if text is above it."
+    },
+    "teacher_marketing": {
+      "url": "https://images.pexels.com/photos/6684372/pexels-photo-6684372.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+      "description": "Teacher grading paper, use for teacher dashboard onboarding or empty states."
+    },
+    "texture": {
+      "url": "https://images.unsplash.com/photo-1532456745301-b2c645d8b80d?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2NzR8MHwxfHNlYXJjaHwyfHxtaW5pbWFsaXN0JTIwZ2VvbWV0cmljJTIwdGV4dHVyZXxlbnwwfHx8fDE3ODc0MTAxNjR8MA&ixlib=rb-4.1.0&q=85",
+      "description": "White concrete building facade, geometric. Useful for subtle overlay or background pattern."
+    }
+  },
+  "instructions_to_main_agent": [
+    "You are building Edora v2. Completely avoid the generic 'indigo-on-white' Vercel/Stripe default aesthetic.",
+    "Do NOT use the Inter font for anything.",
+    "Implement 'Cabinet Grotesk' for Headings, 'IBM Plex Sans' for body, and 'JetBrains Mono' for numbers/stats.",
+    "Fix all floating/broken microcopy from v1 by explicitly containing text in properly padded divs (p-4 or p-6) with explicit text-left or text-balance alignment.",
+    "Make the application strictly mobile-first responsive.",
+    "For the Teacher dashboard, use a dense 'Bento' or Technical grid without heavy shadows. Rely on 1px borders.",
+    "For the Student Exam view, create a distraction-free, 'Paper-like' interface. Large typography, clear visual hierarchy.",
+    "Do not use completely transparent backgrounds for dropdowns, modals, or fixed headers. Always use solid/blurred surfaces.",
+    "Every button, input, form, and interactive element MUST have a `data-testid` (e.g., data-testid='login-submit-button')."
+  ],
+  "UNIVERSAL GUIDELINES FOR MAIN AGENT": [
+    "Create depth through layered design elements with z-index hierarchy.",
+    "Use glass-morphism effects with backdrop filters (12-24px blur) only where appropriate (do not use in clinical/health/exam functional areas).",
+    "You MUST NOT apply universal transition (transition: all). Use specific transitions.",
+    "You MUST NOT center align the app container in global CSS.",
+    "Use modern button styles (pill-shaped or sharp with interactive states).",
+    "NEVER use AI assistant Emoji characters (🤖🧠) for icons. Use standard icons.",
+    "Use 2-3x more spacing than feels comfortable. Cramped designs look cheap.",
+    "Use 'sonner' for toasts.",
+    "Missing categories (especially sponsor logos) = main agent will use placeholder text which is FORBIDDEN. Use text or actual SVGs."
+  ],
+  "GENERAL UI UX DESIGN GUIDELINES": [
+    "Ensure contrast ratios meet APCA or WCAG AA standards.",
+    "Implement explicit focus management for the exam palette.",
+    "Differentiate primary and secondary buttons dramatically.",
+    "Never rely on inheritance for hover states (e.g., explicitly define text color on hover)."
+  ]
+}
