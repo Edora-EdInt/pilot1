@@ -23,9 +23,24 @@ v1 was a single 14.6k-line HTML file with 7 serious flaws. User asked to FIX ALL
 6. **Selector quirks** → honors all 6 types, seeded shuffle (non-deterministic), robust marks top-up to target, real variant diversity (overlap ~0-4%).
 7. **UX** → distinctive editorial redesign, responsive, fixed microcopy/greeting.
 
-## Status (2026-08-22) — v2 COMPLETE & TESTED
-- Backend: 42 pytest cases, all core flows pass (iteration_2). Verified: auth/roles, generate/publish fidelity (by qid), sanitized student payload, token guards, server integrity, real AI grading, account lockout (423), live dashboard/analytics.
-- Frontend: 100% of tested flows (teacher generate→publish→share code; student code→exam→AI-graded result; attempts drawer; analytics).
+## Status (2026-08-22) — v2 + iteration 3 COMPLETE & TESTED (64/64 backend, 100% frontend)
+
+### Auth bug fix (login/sign-up)
+Root cause: httpOnly `SameSite=None` cookie unreliable behind the Cloudflare/k8s proxy. Fix: **dual-mode auth** — backend also returns a `token`; frontend stores it (localStorage) and sends `Authorization: Bearer` via an axios interceptor (cookie still set as well). Verified both cookie-only and Bearer-only sessions work, plus reload persistence & logout.
+
+### New features (all verified)
+1. **Face Verification (real, vision-LLM)** — `assess_identity()` checks the enrolment photo (one live human face); `verify_face()` compares a mid-exam live snapshot to the enrolment photo. Mismatch → `face_mismatch` integrity event (−20) + `faceMatch=false`. Endpoints: `/api/student/start` (returns `identityCheck`), `/api/student/{id}/face-check`. Teacher sees identity/face badges.
+2. **PDF Export** — `/api/exams/{code}/pdf` (question paper) and `/api/attempts/{id}/pdf` (graded report) via reportlab; UI download buttons on Published Exams + Attempts drawer.
+3. **Live Proctoring** — `/api/proctoring/live` (teacher) + `/proctoring` page polling every 3s; shows active sessions with live integrity, identity/face status, tab-switches; stale/expired sessions filtered out.
+4. **AI Question Generation** — `/api/questions/generate` (teacher) + `/studio` page; LLM creates new CBSE questions inserted into the bank (dedup by qid).
+
+### Earlier fixes (iteration 1-2) — all green
+JWT roles, generate/publish fidelity (by qid), sanitized student payload, per-attempt tokens, ObjectId guards, account-based brute-force lockout (423), server-authoritative integrity, real AI grading, live dashboard/analytics.
+
+## Backlog / Optional polish (from test reports)
+- Auto-expire abandoned in_progress attempts (currently filtered in the live feed by startedAt+duration).
+- Split server.py into routers; dedicated FaceCheckInput model; question-approval workflow + delete UI; TTL index on login_attempts.
+
 
 ## Credentials
 - Teacher: teacher@edora.io / Edora@2026

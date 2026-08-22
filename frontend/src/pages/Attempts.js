@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
-import { X, ShieldAlert, ShieldCheck, Sparkles, CheckCircle2, XCircle } from "lucide-react";
-import api from "../api";
-import { Card, Badge, Spinner } from "../components/ui";
+import { X, ShieldAlert, ShieldCheck, Sparkles, CheckCircle2, XCircle, FileDown, UserCheck, UserX } from "lucide-react";
+import api, { downloadPdf } from "../api";
+import { Card, Badge, Spinner, Button } from "../components/ui";
 
 function integrityTone(s) {
   if (s >= 90) return { tone: "success", label: "Clean" };
@@ -77,7 +77,17 @@ export default function Attempts() {
           <div className="relative w-full max-w-xl bg-bg h-full overflow-auto">
             <div className="sticky top-0 bg-surface border-b border-line px-6 py-4 flex items-center justify-between z-10">
               <h2 className="font-heading font-bold text-lg">{loadingDetail ? "Loading…" : detail.studentName}</h2>
-              <button onClick={() => setDetail(null)} className="p-2 text-ink2 hover:text-ink"><X className="w-5 h-5" /></button>
+              <div className="flex items-center gap-2">
+                {detail.id && (
+                  <Button variant="outline" onClick={async () => {
+                    try { await downloadPdf(`/attempts/${detail.id}/pdf`, `Edora_result_${detail.studentName}.pdf`); }
+                    catch {}
+                  }} data-testid="download-report-pdf" className="!px-3 !py-2">
+                    <FileDown className="w-4 h-4" /> PDF
+                  </Button>
+                )}
+                <button onClick={() => setDetail(null)} className="p-2 text-ink2 hover:text-ink"><X className="w-5 h-5" /></button>
+              </div>
             </div>
             {loadingDetail ? (
               <div className="py-20 grid place-items-center"><Spinner className="w-6 h-6 text-primary" /></div>
@@ -89,10 +99,28 @@ export default function Attempts() {
                   <Card className="p-4 text-center"><div className="font-mono font-bold text-2xl">{detail.integrityScore}</div><div className="text-xs text-ink2">Integrity</div></Card>
                 </div>
 
-                {detail.photo && (
+                {(detail.photo || detail.identityCheck) && (
                   <Card className="p-4">
-                    <div className="text-xs uppercase tracking-wide text-ink2 mb-2">Identity capture</div>
-                    <img src={detail.photo} alt="Identity capture" className="w-32 h-32 object-cover rounded-lg border border-line" />
+                    <div className="text-xs uppercase tracking-wide text-ink2 mb-2">Identity verification</div>
+                    <div className="flex items-start gap-3">
+                      {detail.photo && <img src={detail.photo} alt="Identity capture" className="w-24 h-24 object-cover rounded-lg border border-line" />}
+                      <div className="space-y-1.5">
+                        {detail.identityCheck && (
+                          detail.identityCheck.method === "skipped" ? (
+                            <Badge tone="neutral" data-testid="identity-badge"><UserX className="w-3.5 h-3.5" /> Not verified (skipped)</Badge>
+                          ) : (
+                            <Badge tone={detail.identityCheck.valid ? "success" : "danger"} data-testid="identity-badge">
+                              {detail.identityCheck.valid ? <UserCheck className="w-3.5 h-3.5" /> : <UserX className="w-3.5 h-3.5" />}
+                              {detail.identityCheck.valid ? "Face verified" : "Identity check failed"}
+                            </Badge>
+                          )
+                        )}
+                        {detail.faceMatch === false && (
+                          <Badge tone="danger"><UserX className="w-3.5 h-3.5" /> Face mismatch during exam</Badge>
+                        )}
+                        {detail.identityCheck?.reason && <p className="text-xs text-ink2 max-w-[16rem]">{detail.identityCheck.reason}</p>}
+                      </div>
+                    </div>
                   </Card>
                 )}
 

@@ -13,7 +13,7 @@ async def main():
     a = await db.attempts.delete_many({"examCode": {"$in": codes}})
     a2 = await db.attempts.delete_many({"studentName": {"$regex": "^TEST_"}})
     e = await db.exams.delete_many({"name": {"$regex": "^TEST_"}})
-    u = await db.users.delete_many({"email": {"$regex": "^test_(lock|esc)_"}})
+    u = await db.users.delete_many({"email": {"$regex": "^test_(lock|esc|v3|signup)_"}})
     la = await db.login_attempts.delete_many({"_id": {"$regex": "test_lock_"}})
     print(f"deleted {e.deleted_count} exams, {a.deleted_count + a2.deleted_count} attempts, "
           f"{u.deleted_count} test users, {la.deleted_count} lockout records")

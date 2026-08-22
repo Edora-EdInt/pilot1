@@ -1,13 +1,15 @@
 import React, { useState } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
-import { LayoutDashboard, FilePlus2, BookCheck, Users, BarChart3, LogOut, Menu, X, GraduationCap } from "lucide-react";
+import { LayoutDashboard, FilePlus2, BookCheck, Users, BarChart3, LogOut, Menu, Radio, Wand2 } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import { Button } from "./ui";
 
 const NAV = [
   { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { to: "/generate", label: "Generate Exam", icon: FilePlus2 },
+  { to: "/studio", label: "AI Question Studio", icon: Wand2 },
   { to: "/exams", label: "Published Exams", icon: BookCheck },
+  { to: "/proctoring", label: "Live Proctoring", icon: Radio },
   { to: "/attempts", label: "Attempts & Integrity", icon: Users },
   { to: "/analytics", label: "Analytics", icon: BarChart3 },
 ];

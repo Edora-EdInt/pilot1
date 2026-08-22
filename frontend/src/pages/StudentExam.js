@@ -21,7 +21,9 @@ export default function StudentExam() {
   const [result, setResult] = useState(null);
 
   const videoRef = useRef(null);
+  const liveVideoRef = useRef(null);
   const streamRef = useRef(null);
+  const liveStreamRef = useRef(null);
   const attemptIdRef = useRef(null);
   const attemptTokenRef = useRef(null);
   const timerRef = useRef(null);
@@ -29,6 +31,44 @@ export default function StudentExam() {
   useEffect(() => {
     if (user && user.name && !name) setName(user.name);
   }, [user]); // eslint-disable-line
+
+  // ── mid-exam face verification (compare live capture to enrolment photo) ──
+  useEffect(() => {
+    if (step !== "live") return;
+    let stopped = false;
+    let capTimer = null;
+    (async () => {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" } });
+        if (stopped) { stream.getTracks().forEach((t) => t.stop()); return; }
+        liveStreamRef.current = stream;
+        if (liveVideoRef.current) liveVideoRef.current.srcObject = stream;
+        capTimer = setTimeout(async () => {
+          const v = liveVideoRef.current;
+          if (!v) return;
+          const c = document.createElement("canvas");
+          c.width = 320; c.height = 240;
+          c.getContext("2d").drawImage(v, 0, 0, 320, 240);
+          const snap = c.toDataURL("image/jpeg", 0.7);
+          try {
+            const { data } = await api.post(`/student/${attemptIdRef.current}/face-check`,
+              { type: snap, token: attemptTokenRef.current });
+            if (data && data.match === false) toast.warning("Identity check flagged — please stay in frame.");
+          } catch {}
+          if (liveStreamRef.current) liveStreamRef.current.getTracks().forEach((t) => t.stop());
+          liveStreamRef.current = null;
+        }, 6000);
+      } catch {
+        // camera unavailable — silently skip face verification
+      }
+    })();
+    return () => {
+      stopped = true;
+      if (capTimer) clearTimeout(capTimer);
+      if (liveStreamRef.current) liveStreamRef.current.getTracks().forEach((t) => t.stop());
+      liveStreamRef.current = null;
+    };
+  }, [step]); // eslint-disable-line
 
   // ── camera ──
   const startCamera = async () => {
@@ -105,6 +145,9 @@ export default function StudentExam() {
       setAttempt(data);
       attemptIdRef.current = data.attemptId;
       attemptTokenRef.current = data.attemptToken;
+      if (data.identityCheck && data.identityCheck.method === "ai" && !data.identityCheck.valid) {
+        toast.warning("Identity photo could not be clearly verified — a proctor will review it.");
+      }
       setStep("instructions");
     } catch (err) {
       toast.error(formatApiErrorDetail(err.response?.data?.detail) || err.message);
@@ -220,6 +263,7 @@ export default function StudentExam() {
     const low = remaining < 60;
     return (
       <div className="min-h-screen bg-bg flex flex-col" data-testid="student-live">
+        <video ref={liveVideoRef} autoPlay playsInline muted className="fixed w-px h-px opacity-0 pointer-events-none -z-10" aria-hidden="true" />
         <header className="bg-surface border-b border-line px-4 sm:px-8 py-3 flex items-center justify-between sticky top-0 z-20">
           <div className="min-w-0">
             <div className="font-heading font-bold text-ink truncate">{attempt.exam.name}</div>

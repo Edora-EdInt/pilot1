@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useState, useCallback } from "react";
-import api from "../api";
+import api, { setToken, clearToken } from "../api";
 
 const AuthContext = createContext(null);
 
@@ -20,11 +20,13 @@ export function AuthProvider({ children }) {
 
   const login = async (email, password) => {
     const { data } = await api.post("/auth/login", { email, password });
+    if (data.token) setToken(data.token);
     setUser(data);
     return data;
   };
   const register = async (payload) => {
     const { data } = await api.post("/auth/register", payload);
+    if (data.token) setToken(data.token);
     setUser(data);
     return data;
   };
@@ -32,6 +34,7 @@ export function AuthProvider({ children }) {
     try {
       await api.post("/auth/logout");
     } catch {}
+    clearToken();
     setUser(false);
   };
 

@@ -1,0 +1,53 @@
+{
+  "summary": "Iteration-3 verification of the auth dual-mode bug fix plus the 4 new features (AI Question Studio, PDF export, Live Proctoring, Face Verification) and full regression. Backend: 64/64 pytest cases pass against the public preview URL (42 regression + 22 new). Frontend: teacher login->/dashboard, reload persistence, logout, public sign-up->/exam (student), AI Question Studio generation (2 real LLM questions added to bank), exam paper PDF download (200 application/pdf), attempt report PDF download from the attempts drawer, Live Proctoring live card lifecycle (appears on start, disappears after submit, 3s polling), and the full anonymous student exam flow (code -> skip photo -> answer -> submit -> AI-graded result). One in-scope fix applied: Badge component was swallowing data-testid (live-count was untestable).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "GET /api/proctoring/live", "issue": "Abandoned attempts never expire: any attempt started and not submitted stays 'in_progress' forever and keeps showing in the live feed (I saw 7 stale sessions from earlier runs, some 5m+ old, none actually live). Consider auto-expiring attempts past startedAt + duration (or a status 'expired') so the feed reflects real activity."},
+      {"endpoint": "POST /api/student/{id}/face-check", "issue": "Contract smell only (works): the live snapshot is passed in IntegrityEventInput.type, so a base64 image is stored in a field documented as an event type. A dedicated FaceCheckInput {image, token} model would be cleaner and avoids accidental integrity-event writes."},
+      {"endpoint": "POST /api/questions/generate", "issue": "Generated questions are inserted straight into the shared bank with no review/approval or teacher attribution, and no way to delete them from the UI. A bad LLM question therefore instantly becomes eligible for real papers."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "components/ui.js Badge", "issue": "FIXED BY ME: Badge did not forward extra props, so data-testid=\"live-count\" (and any future Badge testid) was never rendered — proctoring live count was unassertable.", "selector": "[data-testid=\"live-count\"]", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Live Proctoring cards", "issues": ["A student who skipped the enrolment photo (identityValid=false, method 'skipped') is labelled 'Identity failed' in red — indistinguishable from a real vision-LLM failure. Suggest a neutral 'Not verified' badge for method=skipped.", "Cards can simultaneously show 'Identity failed' and 'clean', which reads contradictorily."]},
+      {"screen": "Login page", "issues": ["A GET /api/auth/me 401 is fired (and logged as a console error) on every unauthenticated page load; skip the call when no token/cookie exists to keep the console clean."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_edora_v3_features.py",
+    "/app/backend/tests/test_edora_backend.py",
+    "/app/backend/tests/conftest.py",
+    "/app/backend/tests/cleanup_test_data.py",
+    "/app/test_reports/pytest/iteration_3.xml"
+  ],
+  "action_items": [
+    "Optional: expire/close abandoned in_progress attempts so /api/proctoring/live only shows genuinely active sessions.",
+    "Optional: distinguish 'identity skipped' from 'identity failed' in the proctoring/attempts badges.",
+    "Optional: introduce a dedicated FaceCheckInput model instead of reusing IntegrityEventInput.type for the base64 snapshot.",
+    "Optional: avoid the 401 /auth/me call on public pages."
+  ],
+  "critical_code_review_comments": [
+    "server.py is now 717 lines and mixes auth, exam generation, student flow, proctoring, question generation and PDF rendering — split into routers (auth/exams/student/proctoring/reports) before it grows further.",
+    "PDF builders import reportlab and define styles on every request inside _pdf_response; hoist imports/stylesheet to module level to cut per-request overhead.",
+    "POST /api/questions/generate caps count at 10 but performs one find_one + insert_one per question in a loop; use bulk ops and consider marking docs with the creating teacher id for auditability.",
+    "clear_auth_cookies() calls delete_cookie without secure/samesite='none' matching the set attributes; deletion currently works in this environment (verified /auth/me -> 401 after logout) but mismatched attributes are browser-fragile — pass secure=True, samesite='none'.",
+    "Login lockout is now email-keyed and correctly returns 423 (previous iteration-2 defect fixed); add a TTL index on login_attempts so records self-expire."
+  ],
+  "updated_files": [
+    "/app/frontend/src/components/ui.js",
+    "/app/backend/tests/test_edora_v3_features.py",
+    "/app/backend/tests/cleanup_test_data.py"
+  ],
+  "success_rate": {"backend": "100% (64/64)", "frontend": "100% of tested flows"},
+  "seed_data_creation": "Transient only: TEST_Exam publishes, TEST_* attempts, throwaway users test_v3_*/test_lock_*/TEST_signup_*. All removed via /app/backend/tests/cleanup_test_data.py. NOTE: ~7 AI-generated questions created by the Question Studio tests remain in the 'questions' bank (they are valid CBSE questions; delete with db.questions.delete_many({aiGenerated:true}) if you want a pristine bank).",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": true,
+  "test_credentials": "teacher@edora.io / Edora@2026 ; student@edora.io / Student@2026 (from /app/memory/test_credentials.md)",
+  "context_for_next_testing_agent": "Verified this iteration: (1) POST /auth/login and /auth/register return a 'token'; Bearer-only session (no cookies) works for /auth/me and teacher endpoints; cookie-only session also works; bad bearer -> 401; logout clears localStorage token AND kills the cookie session (/auth/me 401, protected route redirects to /login); UI login -> /dashboard, survives reload; public sign-up creates a STUDENT and lands on /exam with the name prefilled; students visiting /dashboard are redirected to /exam. (2) Brute-force lockout NOW WORKS: 6 wrong logins on a throwaway email -> 423 (iteration-2 defect fixed, key is email). (3) /api/questions/generate inserts into the bank (stats total grows), MCQs come back with options+correctAnswer, 401 anon / 403 student, 422 on missing chapter; UI /studio generated 2 Chemistry questions end-to-end. (4) PDFs: /api/exams/{code}/pdf and /api/attempts/{id}/pdf return 200 application/pdf with %PDF magic and >2KB, 404 for unknown code/bad oid, 401 anon / 403 student; UI buttons pdf-<CODE> and download-report-pdf both trigger 200 application/pdf. (5) /api/proctoring/live: started attempt appears with correct studentName/examCode/tabSwitches/integrityScore(95 after 1 tab_switch)/answered, disappears after submit; UI polls every 3s and renders live-card-<id> (needed the Badge data-testid fix). (6) Face verification is real: assess_identity on a synthetic PIL face returned method='ai' valid=false conf 0.99 ('cartoon/illustration'); face-check same image -> {match:true,0.99}; clearly different image -> {match:false,0.98} and the attempt got face_mismatch event, integrityScore 80, faceMatch=false; wrong token -> 403, bad oid -> 404; faceChecks visible to teacher and attempt token not leaked. (7) Regression 42/42: nested-blueprint generate, seeded reproducibility, publish-by-qids, sanitized student payload, token-guarded mutations, AI grading, dashboard/analytics (cached insight). Camera unavailable in headless so the mid-exam UI capture path was not exercised (skip-photo used).",
+  "rca_of_the_issue": "Reported 'login/sign-up not working' is resolved by the dual-mode auth: the SameSite=None httpOnly cookie is unreliable behind this proxy, and the frontend now falls back to the Bearer token stored in localStorage via an axios interceptor; both paths were verified independently. The only defect found this round was cosmetic/testability: components/ui.js Badge did not spread extra props, dropping data-testid=\"live-count\" — fixed by adding {...props} to the Badge span."
+}

@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Copy, BookCheck, Clock, Users } from "lucide-react";
-import api from "../api";
-import { Card, Badge, Spinner } from "../components/ui";
+import { Copy, BookCheck, Users, FileDown } from "lucide-react";
+import api, { downloadPdf } from "../api";
+import { Card, Badge, Spinner, Button } from "../components/ui";
 
 export default function PublishedExams() {
   const [exams, setExams] = useState(null);
@@ -12,6 +12,10 @@ export default function PublishedExams() {
   }, []);
 
   const copy = (code) => { navigator.clipboard.writeText(code); toast.success(`Copied ${code}`); };
+  const dlPaper = async (code) => {
+    try { await downloadPdf(`/exams/${code}/pdf`, `Edora_${code}_paper.pdf`); toast.success("Paper PDF downloaded"); }
+    catch { toast.error("Could not download PDF"); }
+  };
 
   return (
     <div className="p-6 lg:p-10 max-w-7xl mx-auto" data-testid="exams-page">
@@ -54,6 +58,9 @@ export default function PublishedExams() {
                 <span className="text-ink2 flex items-center gap-1.5"><Users className="w-4 h-4" />{e.submitted} submitted</span>
                 <span className="font-mono font-medium">{e.avgScore ? `${e.avgScore}%` : "—"}</span>
               </div>
+              <Button variant="outline" className="w-full mt-3" onClick={() => dlPaper(e.code)} data-testid={`pdf-${e.code}`}>
+                <FileDown className="w-4 h-4" /> Download paper PDF
+              </Button>
             </Card>
           ))}
         </div>

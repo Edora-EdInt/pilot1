@@ -76,3 +76,14 @@ class IntegrityEventInput(BaseModel):
 class SubmitInput(BaseModel):
     token: str
     answers: Dict[str, str] = {}
+
+
+class QuestionGenInput(BaseModel):
+    subject: str
+    chapter: str
+    questionType: str = "Short Answer"
+    difficulty: str = "Medium"
+    count: int = 5
+    marks: int = 3
+    board: str = "CBSE"
+    grade: int = 10

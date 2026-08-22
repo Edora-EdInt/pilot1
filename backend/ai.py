@@ -73,3 +73,104 @@ async def generate_insight(context: str) -> str:
         return (resp if isinstance(resp, str) else str(resp)).strip()
     except Exception:
         return ""
+
+
+def _strip_data_url(b64: str) -> str:
+    if not b64:
+        return ""
+    if "," in b64 and b64.strip().startswith("data:"):
+        return b64.split(",", 1)[1]
+    return b64
+
+
+async def assess_identity(photo_b64: str) -> dict:
+    """Vision check on the enrolment photo: exactly one live human face?"""
+    from emergentintegrations.llm.chat import ImageContent
+    img = _strip_data_url(photo_b64)
+    if not KEY or not img:
+        return {"valid": False, "faces": 0, "confidence": 0.0, "reason": "No photo captured.", "method": "unavailable"}
+    try:
+        chat = LlmChat(api_key=KEY, session_id=f"identity-{uuid.uuid4()}",
+                       system_message="You are an exam identity-verification system. Respond with ONLY compact JSON.").with_model(PROVIDER, MODEL)
+        msg = UserMessage(
+            text=("Analyse the attached webcam photo of an exam candidate. Determine if it shows exactly ONE "
+                  "clearly visible, live human face (not blank, not a photo-of-a-screen/printout, not multiple people). "
+                  'Return JSON: {"valid": true/false, "faces": <int>, "confidence": <0..1>, "reason": "<short>"}'),
+            file_contents=[ImageContent(img)])
+        resp = await chat.send_message(msg)
+        data = _extract_json(resp if isinstance(resp, str) else str(resp))
+        return {
+            "valid": bool(data.get("valid", False)),
+            "faces": int(data.get("faces", 0)),
+            "confidence": float(data.get("confidence", 0.0)),
+            "reason": str(data.get("reason", "")).strip(),
+            "method": "ai",
+        }
+    except Exception as e:
+        return {"valid": False, "faces": 0, "confidence": 0.0, "reason": f"error: {e}", "method": "error"}
+
+
+async def verify_face(reference_b64: str, live_b64: str) -> dict:
+    """Compare a live snapshot to the enrolment reference — same person?"""
+    from emergentintegrations.llm.chat import ImageContent
+    ref = _strip_data_url(reference_b64)
+    live = _strip_data_url(live_b64)
+    if not KEY or not ref or not live:
+        return {"match": True, "confidence": 0.0, "reason": "Verification unavailable.", "method": "unavailable"}
+    try:
+        chat = LlmChat(api_key=KEY, session_id=f"face-{uuid.uuid4()}",
+                       system_message="You are a face-matching system for exam proctoring. Respond with ONLY compact JSON.").with_model(PROVIDER, MODEL)
+        msg = UserMessage(
+            text=("Two webcam images are attached. Image 1 is the enrolled reference photo taken at exam start. "
+                  "Image 2 is a live capture during the exam. Decide if BOTH show the SAME person. "
+                  'Return JSON: {"match": true/false, "confidence": <0..1>, "reason": "<short>"}'),
+            file_contents=[ImageContent(ref), ImageContent(live)])
+        resp = await chat.send_message(msg)
+        data = _extract_json(resp if isinstance(resp, str) else str(resp))
+        return {
+            "match": bool(data.get("match", True)),
+            "confidence": float(data.get("confidence", 0.0)),
+            "reason": str(data.get("reason", "")).strip(),
+            "method": "ai",
+        }
+    except Exception as e:
+        return {"match": True, "confidence": 0.0, "reason": f"error: {e}", "method": "error"}
+
+
+async def generate_questions(subject, chapter, question_type, difficulty, count, marks, board="CBSE", grade=10):
+    """Generate brand-new questions via LLM. Returns a list of normalized dicts."""
+    if not KEY:
+        return []
+    objective = question_type in ("MCQ", "Assertion Reason")
+    schema = ('{"question": "...", "options": ["A text","B text","C text","D text"], "correctAnswer": "A", '
+              '"answer": "brief explanation"}') if objective else \
+             '{"question": "...", "answer": "the full model answer"}'
+    prompt = (
+        f"Generate {count} original {board} Class {grade} {subject} exam questions for the chapter "
+        f'"{chapter}". Type: {question_type}. Difficulty: {difficulty}. Each worth {marks} marks. '
+        f"Return ONLY a JSON array where each element is: {schema}. "
+        f"Questions must be factually correct, unambiguous and curriculum-appropriate. No numbering, no markdown."
+    )
+    try:
+        chat = LlmChat(api_key=KEY, session_id=f"qgen-{uuid.uuid4()}",
+                       system_message="You are an expert CBSE question paper setter. Respond with ONLY a valid JSON array.").with_model(PROVIDER, MODEL)
+        resp = await chat.send_message(UserMessage(text=prompt))
+        text = resp if isinstance(resp, str) else str(resp)
+        m = re.search(r"\[.*\]", text, re.DOTALL)
+        arr = json.loads(m.group(0)) if m else []
+        out = []
+        for item in arr[:count]:
+            q = {
+                "board": board, "class": int(grade), "subject": subject, "chapter": chapter,
+                "difficulty": difficulty, "marks": int(marks), "questionType": question_type,
+                "question": str(item.get("question", "")).strip(),
+                "options": item.get("options", []) if objective else [],
+                "correctAnswer": str(item.get("correctAnswer", "")).strip() if objective else "",
+                "answer": str(item.get("answer", "")).strip(),
+                "objective": objective, "aiGenerated": True,
+            }
+            if q["question"]:
+                out.append(q)
+        return out
+    except Exception:
+        return []

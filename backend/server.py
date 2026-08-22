@@ -16,13 +16,14 @@ from bson import ObjectId
 
 from db import get_db
 from models import (RegisterInput, LoginInput, Blueprint, PublishInput,
-                    StartAttemptInput, IntegrityEventInput, SubmitInput, now_iso)
+                    StartAttemptInput, IntegrityEventInput, SubmitInput, QuestionGenInput, now_iso)
 from auth import (hash_password, verify_password, create_access_token,
                   create_refresh_token, set_auth_cookies, clear_auth_cookies,
                   get_current_user, require_teacher)
 from selector import QuestionSelector
 from seed import seed_all
-from ai import grade_descriptive, generate_insight
+from ai import (grade_descriptive, generate_insight, assess_identity,
+                verify_face, generate_questions)
 
 app = FastAPI(title="Edora v2 API")
 api = APIRouter(prefix="/api")
@@ -37,7 +38,7 @@ async def validation_handler(request, exc):
 
 INTEGRITY_PENALTY = {
     "tab_switch": 5, "blur": 3, "refresh": 10,
-    "fullscreen_exit": 5, "copy": 5, "paste": 5,
+    "fullscreen_exit": 5, "copy": 5, "paste": 5, "face_mismatch": 20,
 }
 
 
@@ -108,8 +109,9 @@ async def register(body: RegisterInput, response: Response):
            "role": role, "created_at": now_iso()}
     res = await db.users.insert_one(doc)
     uid = str(res.inserted_id)
-    set_auth_cookies(response, create_access_token(uid, email, role), create_refresh_token(uid))
-    return {"id": uid, "name": body.name, "email": email, "role": role}
+    access = create_access_token(uid, email, role)
+    set_auth_cookies(response, access, create_refresh_token(uid))
+    return {"id": uid, "name": body.name, "email": email, "role": role, "token": access}
 
 
 @api.post("/auth/login")
@@ -141,9 +143,9 @@ async def login(body: LoginInput, request: Request, response: Response):
 
     await db.login_attempts.delete_one({"_id": ident})
     uid = str(user["_id"])
-    set_auth_cookies(response, create_access_token(uid, email, user["role"]),
-                     create_refresh_token(uid))
-    return {"id": uid, "name": user["name"], "email": email, "role": user["role"]}
+    access = create_access_token(uid, email, user["role"])
+    set_auth_cookies(response, access, create_refresh_token(uid))
+    return {"id": uid, "name": user["name"], "email": email, "role": user["role"], "token": access}
 
 
 @api.post("/auth/logout")
@@ -424,9 +426,12 @@ async def student_start(body: StartAttemptInput):
     if not exam:
         raise HTTPException(status_code=404, detail="Invalid exam code")
     token = secrets.token_urlsafe(24)
+    identity = await assess_identity(body.photo) if body.photo else {
+        "valid": False, "faces": 0, "confidence": 0.0, "reason": "No photo provided.", "method": "skipped"}
     attempt = {
         "examCode": exam["code"], "examName": exam["name"],
         "studentName": body.studentName.strip(), "photo": body.photo,
+        "identityCheck": identity, "faceChecks": [],
         "startedAt": now_iso(), "answers": {}, "integrityEvents": [],
         "integrityScore": 100, "tabSwitches": 0, "status": "in_progress",
         "duration": exam["duration"], "token": token,
@@ -435,12 +440,36 @@ async def student_start(body: StartAttemptInput):
     return {
         "attemptId": str(res.inserted_id),
         "attemptToken": token,
+        "identityCheck": identity,
         "exam": {
             "code": exam["code"], "name": exam["name"], "subject": exam["subject"],
             "duration": exam["duration"], "totalMarks": exam["totalMarks"],
             "questions": [sanitize_question(q) for q in exam.get("questions", [])],
         },
     }
+
+
+@api.post("/student/{attempt_id}/face-check")
+async def face_check(attempt_id: str, body: IntegrityEventInput):
+    """Mid-exam face match against the enrolment photo. Reuses the token field;
+    the live snapshot is passed in body.type as a base64 data URL."""
+    db = get_db()
+    a = await _load_attempt_authorized(attempt_id, body.token)
+    reference = a.get("photo")
+    live = body.type  # live snapshot base64 data URL
+    result = await verify_face(reference, live)
+    updates = {"faceChecks": (a.get("faceChecks", []) + [{
+        "match": result["match"], "confidence": result["confidence"],
+        "reason": result.get("reason", ""), "at": now_iso()}])}
+    if not result["match"] and result["method"] == "ai":
+        events = a.get("integrityEvents", []) + [{"type": "face_mismatch", "at": now_iso()}]
+        updates["integrityEvents"] = events
+        updates["integrityScore"] = compute_integrity(events)
+        updates["faceMatch"] = False
+    else:
+        updates.setdefault("faceMatch", a.get("faceMatch", True))
+    await db.attempts.update_one({"_id": to_oid(attempt_id)}, {"$set": updates})
+    return {"match": result["match"], "confidence": result["confidence"]}
 
 
 async def _load_attempt_authorized(attempt_id: str, token: str):
@@ -536,6 +565,153 @@ async def student_submit(attempt_id: str, body: SubmitInput):
     }})
     return {"score": score, "integrityScore": integrity_score,
             "details": details, "aiGraded": ai_count}
+
+
+# ── LIVE PROCTORING (teacher) ──
+@api.get("/proctoring/live")
+async def proctoring_live(user=Depends(require_teacher)):
+    db = get_db()
+    now_dt = datetime.now(timezone.utc)
+    out = []
+    async for doc in db.attempts.find({"status": "in_progress"}).sort("startedAt", -1):
+        a = clean(doc)
+        # hide abandoned/expired sessions (past startedAt + duration + 2m grace)
+        try:
+            started = datetime.fromisoformat(a.get("startedAt"))
+            if (now_dt - started).total_seconds() > (a.get("duration", 60) * 60 + 120):
+                continue
+        except Exception:
+            pass
+        ic = a.get("identityCheck") or {}
+        out.append({
+            "id": a["id"], "studentName": a["studentName"], "examCode": a["examCode"],
+            "examName": a.get("examName"), "startedAt": a.get("startedAt"),
+            "integrityScore": a.get("integrityScore", 100),
+            "tabSwitches": a.get("tabSwitches", 0),
+            "identityValid": ic.get("valid", None),
+            "identityMethod": ic.get("method", "skipped"),
+            "faceMatch": a.get("faceMatch", None),
+            "answered": len([v for v in (a.get("answers") or {}).values() if str(v).strip()]),
+            "events": len(a.get("integrityEvents", [])),
+        })
+    return {"live": out, "count": len(out)}
+
+
+# ── AI QUESTION GENERATION (teacher) ──
+@api.post("/questions/generate")
+async def questions_generate(body: QuestionGenInput, user=Depends(require_teacher)):
+    from seed import _qid
+    count = max(1, min(body.count, 10))
+    generated = await generate_questions(
+        body.subject, body.chapter, body.questionType, body.difficulty,
+        count, body.marks, body.board, body.grade)
+    if not generated:
+        raise HTTPException(status_code=502, detail="AI could not generate questions. Please try again.")
+    db = get_db()
+    inserted = []
+    for q in generated:
+        q["qid"] = _qid(q)
+        existing = await db.questions.find_one({"qid": q["qid"]})
+        if existing:
+            continue
+        await db.questions.insert_one(dict(q))
+        item = dict(q)
+        item.pop("_id", None)
+        inserted.append(item)
+    return {"generated": len(generated), "added": len(inserted), "questions": inserted}
+
+
+# ── PDF EXPORT (teacher) ──
+def _pdf_response(build_fn, filename):
+    from io import BytesIO
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.units import mm
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, HRFlowable
+    from fastapi.responses import Response as FResponse
+
+    buf = BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=A4, topMargin=18 * mm, bottomMargin=18 * mm,
+                            leftMargin=18 * mm, rightMargin=18 * mm, title=filename)
+    styles = getSampleStyleSheet()
+    styles.add(ParagraphStyle(name="EdTitle", fontName="Helvetica-Bold", fontSize=18, spaceAfter=4))
+    styles.add(ParagraphStyle(name="EdMeta", fontName="Helvetica", fontSize=9, textColor="#5C5C54", spaceAfter=2))
+    styles.add(ParagraphStyle(name="EdSection", fontName="Helvetica-Bold", fontSize=12, spaceBefore=12, spaceAfter=6))
+    styles.add(ParagraphStyle(name="EdQ", fontName="Helvetica", fontSize=10.5, spaceAfter=6, leading=15))
+    styles.add(ParagraphStyle(name="EdSmall", fontName="Helvetica", fontSize=9, textColor="#5C5C54", spaceAfter=8, leading=13))
+    flow = []
+    build_fn(flow, styles, {"Paragraph": Paragraph, "Spacer": Spacer, "HR": HRFlowable})
+    doc.build(flow)
+    buf.seek(0)
+    return FResponse(content=buf.read(), media_type="application/pdf",
+                     headers={"Content-Disposition": f'attachment; filename="{filename}"'})
+
+
+def _esc(s):
+    return (str(s or "")).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
+@api.get("/exams/{code}/pdf")
+async def exam_pdf(code: str, user=Depends(require_teacher)):
+    db = get_db()
+    exam = await db.exams.find_one({"code": code})
+    if not exam:
+        raise HTTPException(status_code=404, detail="Exam not found")
+
+    def build(flow, styles, F):
+        flow.append(F["Paragraph"](_esc(exam["name"]), styles["EdTitle"]))
+        flow.append(F["Paragraph"](
+            f'{_esc(exam["subject"])} · Class {exam.get("class")} · {exam.get("board","CBSE")} · '
+            f'Variant {exam.get("variantLabel","A")}', styles["EdMeta"]))
+        flow.append(F["Paragraph"](
+            f'Maximum Marks: {exam.get("totalMarks")} &nbsp;&nbsp; Time: {exam.get("duration")} min &nbsp;&nbsp; '
+            f'Code: {exam.get("code")}', styles["EdMeta"]))
+        flow.append(F["HR"](width="100%", thickness=1, color="#E5E5E0", spaceBefore=6, spaceAfter=6))
+        # group by section
+        sections = {}
+        for q in exam.get("questions", []):
+            sections.setdefault(q.get("questionType", "Other"), []).append(q)
+        n = 0
+        for sec, qs in sections.items():
+            flow.append(F["Paragraph"](f'{_esc(sec)} &nbsp;({len(qs)} × questions)', styles["EdSection"]))
+            for q in qs:
+                n += 1
+                flow.append(F["Paragraph"](f'<b>{n}.</b> {_esc(q.get("question"))} '
+                                           f'<font color="#D95D39">[{q.get("marks")}]</font>', styles["EdQ"]))
+                if q.get("objective") and q.get("options"):
+                    opts = "  ".join(f'({chr(65+i)}) {_esc(o)}' for i, o in enumerate(q["options"]))
+                    flow.append(F["Paragraph"](opts, styles["EdSmall"]))
+    return _pdf_response(build, f'Edora_{code}_paper.pdf')
+
+
+@api.get("/attempts/{attempt_id}/pdf")
+async def attempt_pdf(attempt_id: str, user=Depends(require_teacher)):
+    db = get_db()
+    a = await db.attempts.find_one({"_id": to_oid(attempt_id)})
+    if not a:
+        raise HTTPException(status_code=404, detail="Attempt not found")
+    a = clean(a)
+    score = a.get("score") or {}
+
+    def build(flow, styles, F):
+        flow.append(F["Paragraph"](f'Result — {_esc(a["studentName"])}', styles["EdTitle"]))
+        flow.append(F["Paragraph"](
+            f'Exam: {_esc(a.get("examName"))} · Code {a.get("examCode")}', styles["EdMeta"]))
+        flow.append(F["Paragraph"](
+            f'Score: <b>{score.get("marksObtained","—")}/{score.get("maxMarks","—")} '
+            f'({score.get("percentage","—")}%)</b> &nbsp;&nbsp; Integrity: {a.get("integrityScore",100)} '
+            f'&nbsp;&nbsp; Face match: {a.get("faceMatch", "n/a")}', styles["EdMeta"]))
+        flow.append(F["HR"](width="100%", thickness=1, color="#E5E5E0", spaceBefore=6, spaceAfter=6))
+        for i, d in enumerate(a.get("gradedDetails", []), 1):
+            flow.append(F["Paragraph"](f'<b>Q{i}.</b> {_esc(d.get("question"))} '
+                                       f'<font color="#D95D39">[{d.get("awarded")}/{d.get("maxMarks")}]</font>',
+                                       styles["EdQ"]))
+            ans = f'Answer: {_esc(d.get("studentAnswer"))}'
+            fb = f'Feedback: {_esc(d.get("feedback"))}' if d.get("method") != "auto" else \
+                 f'Correct answer: {_esc(d.get("correctAnswer"))}'
+            flow.append(F["Paragraph"](f'{ans}<br/>{fb}', styles["EdSmall"]))
+    return _pdf_response(build, f'Edora_result_{a["studentName"].replace(" ", "_")}.pdf')
+
 
 
 app.include_router(api)

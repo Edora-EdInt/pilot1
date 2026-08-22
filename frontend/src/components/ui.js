@@ -64,7 +64,7 @@ export function Card({ className = "", children, ...props }) {
   );
 }
 
-export function Badge({ tone = "neutral", children, className = "" }) {
+export function Badge({ tone = "neutral", children, className = "", ...props }) {
   const tones = {
     neutral: "bg-line text-ink2",
     primary: "bg-primary/10 text-primary",
@@ -74,7 +74,7 @@ export function Badge({ tone = "neutral", children, className = "" }) {
     accent: "bg-accent/30 text-secondary",
   };
   return (
-    <span className={`inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full ${tones[tone]} ${className}`}>
+    <span className={`inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full ${tones[tone]} ${className}`} {...props}>
       {children}
     </span>
   );
