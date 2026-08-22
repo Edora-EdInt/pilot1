@@ -1,0 +1,34 @@
+{
+  "summary": "Targeted frontend re-test of the login/sign-up CORS bug fix (Bearer-token auth, no withCredentials). ALL requested flows PASS. Teacher login teacher@edora.io/Edora@2026 -> POST /api/auth/login 200 -> lands on /dashboard (data-testid dashboard-page) with live stats (3 exams, 1 student, 864 questions), NO 'Something went wrong' and no CORS/network failure. Token persisted in localStorage 'edora_token'; full reload keeps the session (/auth/me 200). Public sign-up (toggle-auth-mode -> name/email/password) -> POST /api/auth/register 200, token stored, redirected to /exam with the name prefilled, and the new user is a STUDENT (visiting /dashboard redirects to /exam). Sign out -> POST /auth/logout 200, token cleared to null, back on /login, and /dashboard then redirects to /login. Regression as teacher: /studio, /exams, /proctoring, /attempts, /analytics all load with GET /auth/me 200 plus their data calls 200 (curriculum, exams, proctoring/live, attempts, analytics) - zero auth errors.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/auth/register", "issue": "Cosmetic/expected: EmailStr rejects special-use TLDs (e.g. foo@edora.test) with 422 and the generic 'Some required fields are missing or invalid' toast. Not a bug, but the message does not tell the user the email is the invalid field. (My first sign-up attempt failed for this reason only; a real domain works.)"}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Login page", "issues": ["Still fires GET /api/auth/me on every unauthenticated load -> 401 logged as a console error (carried over from iteration 3). Skip the call when no token exists.", "Error feedback uses sonner toasts (verified visually for 422 invalid email, 400 duplicate email, 401 wrong password) but the toast has no data-testid and no .error class, so automated checks must use [data-sonner-toast]. Consider a data-testid=\"auth-error\" for testability."]}
+    ]
+  },
+  "test_report_links": [],
+  "action_items": [
+    "None blocking - the reported login/sign-up failure is fixed and verified end to end.",
+    "Optional: skip /auth/me when no localStorage token exists to remove the 401 console error on public pages.",
+    "Optional: add data-testid to auth error toast and make the 422 message field-specific (invalid email address)."
+  ],
+  "critical_code_review_comments": [
+    "api.js no longer sets withCredentials, but backend still sets httpOnly cookies on login/register and clear_auth_cookies on logout - the cookie path is now dead weight in the browser flow. Either keep it documented as API-only or remove to avoid confusion.",
+    "Token is stored in localStorage (XSS-readable). Acceptable given the ingress rewrites CORS, but worth a comment/ADR in the code so a future change does not silently regress security expectations."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "not tested this iteration (frontend-only request)", "frontend": "100% of requested auth flows (login, sign-up, persistence, logout, protected-route regression)"},
+  "seed_data_creation": "Two throwaway student accounts created via public sign-up: test_qa_9982@gmail.com and test.qa<epoch>@example.com (password QaTest@2026). Delete with db.users.delete_many({email:{$regex:'^test[._]qa'}}) if a pristine user list is needed.",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": true,
+  "test_credentials": "teacher@edora.io / Edora@2026 (works); student@edora.io / Student@2026 (not exercised this round)",
+  "context_for_next_testing_agent": "Login page testids are email-input, password-input, submit-auth-button, toggle-auth-mode, name-input (register mode only), take-exam-link - NOT login-email/login-password. Dashboard testids: dashboard-page, stat-exams/students/questions/avgscore, nav-*, logout-button, sidebar-username, recent-exams. Sign out button text is 'Sign out' (data-testid logout-button). Bearer auth confirmed: localStorage key 'edora_token'; no cookies needed. Error messages render as sonner toasts -> assert with [data-sonner-toast], not .error.",
+  "rca_of_the_issue": "Original 'Something went wrong' was caused by axios withCredentials:true against an ingress that returns Access-Control-Allow-Origin:* without Allow-Credentials, so the browser blocked the response. The fix (drop withCredentials, use Authorization: Bearer from localStorage) is confirmed working: login/register/me/logout and all teacher endpoints return 200 from the public preview URL with no CORS errors in the console."
+}

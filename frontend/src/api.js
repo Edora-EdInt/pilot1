@@ -14,7 +14,6 @@ export function getToken() {
 
 const api = axios.create({
   baseURL: `${process.env.REACT_APP_BACKEND_URL}/api`,
-  withCredentials: true,
 });
 
 // Attach Bearer token as a fallback for environments where the httpOnly
