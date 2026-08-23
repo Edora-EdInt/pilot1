@@ -87,30 +87,54 @@ async def seed_questions(db):
 
 
 async def seed_users(db):
-    admin_email = os.environ.get("ADMIN_EMAIL", "teacher@edora.io")
-    admin_pw = os.environ.get("ADMIN_PASSWORD", "Edora@2026")
-    existing = await db.users.find_one({"email": admin_email})
-    if not existing:
+    # Admin (username/password login)
+    admin_username = "admin"
+    admin_pw = "Admin@2026"
+    admin = await db.users.find_one({"username": admin_username})
+    if not admin:
         await db.users.insert_one({
-            "name": "Dr. Sarah Chen", "email": admin_email,
-            "password_hash": hash_password(admin_pw), "role": "teacher",
-            "created_at": datetime.now(timezone.utc).isoformat(),
+            "name": "School Administrator", "username": admin_username,
+            "email": "admin@edora.io",
+            "password_hash": hash_password(admin_pw), "role": "admin",
+            "disabled": False, "created_at": datetime.now(timezone.utc).isoformat(),
         })
-    elif not verify_password(admin_pw, existing["password_hash"]):
-        await db.users.update_one({"email": admin_email},
-                                  {"$set": {"password_hash": hash_password(admin_pw)}})
 
-    student_email = "student@edora.io"
-    if not await db.users.find_one({"email": student_email}):
+    # Sample teacher (username login) — keep email for backward compatibility
+    t_email = os.environ.get("TEACHER_EMAIL", "teacher@edora.io")
+    teacher = await db.users.find_one({"email": t_email})
+    if not teacher:
         await db.users.insert_one({
-            "name": "Aarav Sharma", "email": student_email,
-            "password_hash": hash_password("Student@2026"), "role": "student",
+            "name": "Priya Sharma", "username": "priya.math",
+            "email": t_email, "password_hash": hash_password("Teacher@2026"),
+            "role": "teacher", "subjects": ["Mathematics"],
+            "classes": ["Class 11", "Class 12"], "disabled": False,
             "created_at": datetime.now(timezone.utc).isoformat(),
         })
+    else:
+        # ensure existing teacher has username/portfolio fields for the new model
+        patch = {}
+        if not teacher.get("username"):
+            patch["username"] = "priya.math"
+        if teacher.get("subjects") is None:
+            patch["subjects"] = ["Mathematics"]
+        if teacher.get("classes") is None:
+            patch["classes"] = ["Class 11", "Class 12"]
+        if "disabled" not in teacher:
+            patch["disabled"] = False
+        if patch:
+            await db.users.update_one({"_id": teacher["_id"]}, {"$set": patch})
 
 
 async def ensure_indexes(db):
-    await db.users.create_index("email", unique=True)
+    # Drop legacy non-sparse email index if present, then recreate as sparse.
+    try:
+        existing = await db.users.index_information()
+        if "email_1" in existing and not existing["email_1"].get("sparse"):
+            await db.users.drop_index("email_1")
+    except Exception:
+        pass
+    await db.users.create_index("email", unique=True, sparse=True)
+    await db.users.create_index("username", unique=True, sparse=True)
     await db.questions.create_index([("subject", 1), ("chapter", 1)])
     await db.questions.create_index("qid", unique=True)
     await db.exams.create_index("code", unique=True)

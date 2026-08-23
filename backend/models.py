@@ -16,8 +16,25 @@ class RegisterInput(BaseModel):
 
 
 class LoginInput(BaseModel):
-    email: EmailStr
+    username: str
     password: str
+
+
+class TeacherCreateInput(BaseModel):
+    name: str
+    email: str = ""
+    username: str
+    password: str = Field(min_length=4)
+    subjects: List[str] = []
+    classes: List[str] = []
+
+
+class TeacherUpdateInput(BaseModel):
+    name: Optional[str] = None
+    email: Optional[str] = None
+    subjects: Optional[List[str]] = None
+    classes: Optional[List[str]] = None
+    password: Optional[str] = None
 
 
 # ── Exam blueprint ──

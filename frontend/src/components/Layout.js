@@ -1,10 +1,10 @@
 import React, { useState } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
-import { LayoutDashboard, FilePlus2, BookCheck, Users, BarChart3, LogOut, Menu, Radio, Wand2 } from "lucide-react";
+import { LayoutDashboard, FilePlus2, BookCheck, Users, BarChart3, LogOut, Menu, Radio, Wand2, UserCog } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import { Button } from "./ui";
 
-const NAV = [
+const TEACHER_NAV = [
   { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { to: "/generate", label: "Generate Exam", icon: FilePlus2 },
   { to: "/studio", label: "AI Question Studio", icon: Wand2 },
@@ -14,10 +14,15 @@ const NAV = [
   { to: "/analytics", label: "Analytics", icon: BarChart3 },
 ];
 
+const ADMIN_NAV = [
+  { to: "/admin", label: "Manage Teachers", icon: UserCog },
+];
+
 export default function Layout({ children }) {
   const { user, logout } = useAuth();
   const nav = useNavigate();
   const [open, setOpen] = useState(false);
+  const NAV = user?.role === "admin" ? ADMIN_NAV : TEACHER_NAV;
 
   const doLogout = async () => {
     await logout();

@@ -1,23 +1,20 @@
-# Edora v2 — Test Credentials
+# Edora — Test Credentials
 
-## Teacher (admin of platform)
-- Email: `teacher@edora.io`
+## Admin (username + password login)
+- Username: `admin`
+- Password: `Admin@2026`
+- Role: admin → lands on /admin (Manage Teachers)
+
+## Teacher (username + password login — NOT email)
+- Username: `priya.math`
 - Password: `Edora@2026`
-- Role: teacher
+- Role: teacher → /dashboard with Teaching Portfolio (Mathematics · Class 11, Class 12)
+- (email teacher@edora.io still accepted as a login identifier for backward compat)
 
 ## Student
-- Email: `student@edora.io`
-- Password: `Student@2026`
-- Role: student
-- Note: Students can also join an exam WITHOUT logging in, via the "Take an exam with a code" flow at `/exam`.
+- No login — joins an exam via join code at /exam.
 
-## Auth endpoints (JWT httpOnly cookies)
-- POST `/api/auth/register`  {name,email,password,role}
-- POST `/api/auth/login`     {email,password}
-- POST `/api/auth/logout`
-- GET  `/api/auth/me`
-
-## Key flows
-- Teacher: /dashboard, /generate, /exams, /attempts, /analytics
-- Student: /exam (code entry → identity photo → live exam → AI-graded result)
-- To test the student flow, first publish an exam as teacher and copy the join code.
+## Notes
+- Login endpoint POST /api/auth/login takes {username, password} (matches username OR email).
+- Admin-only: /api/admin/teachers (GET/POST), PUT /api/admin/teachers/{id}, PATCH .../disable, POST .../send-credentials (email is a MOCKED placeholder).
+- Auth is Bearer token in localStorage 'edora_token' (no cookies). Account-based brute-force lockout: 5 fails → 423.

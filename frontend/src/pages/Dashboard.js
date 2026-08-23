@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { FileText, Users, Database, Gauge, Sparkles, FilePlus2, BookCheck, BarChart3, ArrowUpRight } from "lucide-react";
+import { FileText, Users, Database, Gauge, Sparkles, FilePlus2, BookCheck, BarChart3, ArrowUpRight, GraduationCap, Layers } from "lucide-react";
 import api from "../api";
+import { useAuth } from "../context/AuthContext";
 import { Card, Badge, Spinner } from "../components/ui";
 
 const StatCard = ({ icon: Icon, label, value, suffix, testid }) => (
@@ -21,6 +22,9 @@ const StatCard = ({ icon: Icon, label, value, suffix, testid }) => (
 export default function Dashboard() {
   const [stats, setStats] = useState(null);
   const nav = useNavigate();
+  const { user } = useAuth();
+  const subjects = user?.subjects || [];
+  const classes = user?.classes || [];
 
   useEffect(() => {
     api.get("/dashboard/stats").then(({ data }) => setStats(data)).catch(() => setStats(false));
@@ -47,6 +51,47 @@ export default function Dashboard() {
           {new Date().toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" })}
         </div>
       </div>
+
+      {(subjects.length > 0 || classes.length > 0) && (
+        <div className="mb-8" data-testid="teacher-portfolio">
+          <Card className="p-5 mb-4">
+            <div className="flex items-center gap-2 mb-3">
+              <GraduationCap className="w-5 h-5 text-secondary" strokeWidth={1.5} />
+              <h2 className="font-heading font-bold text-lg">Your Teaching Portfolio</h2>
+            </div>
+            <div className="grid sm:grid-cols-2 gap-4">
+              <div>
+                <div className="text-xs uppercase tracking-wide text-ink2 mb-2">Assigned Subjects</div>
+                <div className="flex flex-wrap gap-1.5">
+                  {subjects.length ? subjects.map((s) => <Badge key={s} tone="primary">{s}</Badge>) : <span className="text-sm text-ink2">None assigned</span>}
+                </div>
+              </div>
+              <div>
+                <div className="text-xs uppercase tracking-wide text-ink2 mb-2">Assigned Classes</div>
+                <div className="flex flex-wrap gap-1.5">
+                  {classes.length ? classes.map((c) => <Badge key={c} tone="neutral">{c}</Badge>) : <span className="text-sm text-ink2">None assigned</span>}
+                </div>
+              </div>
+            </div>
+          </Card>
+
+          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4" data-testid="quick-access">
+            {classes.flatMap((c) => subjects.map((s) => ({ c, s }))).map(({ c, s }) => (
+              <Card key={`${c}-${s}`} className="p-5" data-testid={`portfolio-${c}-${s}`.replace(/\s+/g, "-")}>
+                <div className="flex items-center gap-2 mb-3">
+                  <Layers className="w-4 h-4 text-primary" strokeWidth={1.5} />
+                  <span className="font-heading font-bold text-ink">{c} · {s}</span>
+                </div>
+                <div className="space-y-1.5">
+                  <button onClick={() => nav("/generate")} className="w-full text-left text-sm px-3 py-2 rounded-lg bg-line/40 hover:bg-line text-ink flex items-center justify-between transition-colors">Create Assessment <ArrowUpRight className="w-3.5 h-3.5" /></button>
+                  <button onClick={() => nav("/exams")} className="w-full text-left text-sm px-3 py-2 rounded-lg bg-line/40 hover:bg-line text-ink flex items-center justify-between transition-colors">View Previous Exams <ArrowUpRight className="w-3.5 h-3.5" /></button>
+                  <button onClick={() => nav("/studio")} className="w-full text-left text-sm px-3 py-2 rounded-lg bg-line/40 hover:bg-line text-ink flex items-center justify-between transition-colors">Question Bank <ArrowUpRight className="w-3.5 h-3.5" /></button>
+                </div>
+              </Card>
+            ))}
+          </div>
+        </div>
+      )}
 
       {!stats ? (
         <div className="py-20 grid place-items-center"><Spinner className="w-6 h-6 text-primary" /></div>

@@ -1,0 +1,53 @@
+{
+  "summary": "Full backend + frontend verification of the new Admin/Teacher auth & user-management model plus regression of the untouched assessment engine. Backend: 81/81 pytest tests pass (17 new auth/admin tests in tests/test_admin_auth_v4.py + 64 pre-existing engine/regression tests after updating conftest to username login). Frontend: admin login -> Manage Teachers (nav shows only 'Manage Teachers'), create teacher (auto-password + regen), created-panel with username/temp password, Send Login Credentials placeholder toast, teacher appears in list, edit updates subjects, disable flips status and blocks login with 'This account has been disabled' toast, re-enable restores login, new teacher logs in by USERNAME and sees 'Your Teaching Portfolio' with correct subjects/classes and quick-access cards, seeded priya.math portfolio (Mathematics, Class 11/12) OK, role separation redirects both ways OK, all engine pages (/generate, /exams, /studio, /proctoring, /attempts, /analytics) load error-free and /exam student join page works without login.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "/api/admin/teachers", "issue": "No DELETE endpoint — admin can only disable, never remove a teacher. Test/obsolete accounts accumulate forever (I removed 12 leftover TEST_ users directly from Mongo)."},
+      {"endpoint": "/api/admin/teachers (POST/PUT)", "issue": "No validation on username format (accepts spaces/uppercase before lower-casing) and no password strength/complexity check beyond min_length=4; TeacherCreateInput.email is a plain str (not EmailStr) so an invalid email can be stored."},
+      {"endpoint": "/api/admin/teachers (POST)", "issue": "Duplicate email/username relies on a find_one pre-check; a concurrent insert would raise a raw DuplicateKeyError -> 500 instead of 400 (unique indexes exist but the error is not caught)."},
+      {"endpoint": "seed.py seed_users", "issue": "Seed is non-updating for the existing teacher: the DB doc name is 'Dr. Sarah Chen' while seed.py declares 'Priya Sharma', and the seed-path password for a NEW install is 'Teacher@2026' while the documented/actual one is 'Edora@2026'. A fresh environment would therefore NOT match the documented credentials priya.math/Edora@2026."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Login page", "issues": ["Plaintext credentials are printed on the page ('Admin: admin / Admin@2026 · Teacher: priya.math / Edora@2026'). Fine for a demo, must be removed before any real use."]},
+      {"screen": "/exam (student join)", "issues": ["'YOUR FULL NAME' is pre-filled with the logged-in teacher's name (e.g. 'Dr. Sarah Chen') when a teacher session exists — a student on a shared device could submit under the teacher's name."]},
+      {"screen": "Manage Teachers", "issues": ["No confirmation dialog for disable/enable (single click instantly disables an account); no delete option in the UI (backend has none either)."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_admin_auth_v4.py",
+    "/app/backend/tests/conftest.py",
+    "/app/test_reports/pytest/iteration_5_auth.xml",
+    "/app/test_reports/pytest/iteration_5_all.xml"
+  ],
+  "action_items": [
+    "seed.py: make the seeded teacher self-heal (name + password) so a fresh DB really gives priya.math / Edora@2026; the current doc name 'Dr. Sarah Chen' contradicts the code and the login-page hint.",
+    "Remove the hardcoded credential hint from Login.js before production.",
+    "Add DELETE /api/admin/teachers/{id} (or soft-delete) so admins can remove staff; disabled-only leaves the list unbounded.",
+    "Harden teacher create/update validation: EmailStr for email, username regex, stronger min password length, and catch DuplicateKeyError -> 400.",
+    "Do not pre-fill the student name on /exam from the teacher session."
+  ],
+  "critical_code_review_comments": [
+    "server.py is 817 lines — split routers (auth/admin, exams, attempts, analytics) into modules.",
+    "login() lockout counter is keyed on the raw identifier, so an attacker can lock out any known username/email (account-keyed DoS). Consider combining identifier+IP or exponential backoff.",
+    "Anonymous access to /api/admin/* correctly returns 401 and teacher access 403; no MongoDB _id or password_hash leaks in any admin/auth response (verified)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/conftest.py (username-based login fixtures + admin_client + Bearer header)",
+    "/app/backend/tests/test_admin_auth_v4.py (new)",
+    "/app/backend/tests/test_edora_backend.py (auth payload key email->username)",
+    "/app/backend/tests/test_edora_v3_features.py (auth payload key email->username)",
+    "/app/memory/test_credentials.md (was stale: documented email login + wrong endpoints)"
+  ],
+  "success_rate": {"backend": "100% (81/81)", "frontend": "100% of tested flows"},
+  "seed_data_creation": "Created throwaway teachers test_qa.* via admin API/UI; all TEST_/test_qa users (12) deleted from Mongo afterwards. Seeded admin/priya.math/teacher.math.class12 left untouched and unlocked.",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": true,
+  "test_credentials": "admin/Admin@2026 (admin), priya.math/Edora@2026 (teacher), teacher.math.class12/Temp@1234 (teacher)",
+  "context_for_next_testing_agent": "Login body is {username,password}; conftest.py now exposes admin_client/teacher_client/student_client with Bearer tokens. IMPORTANT: requests.Session keeps httpOnly cookies, so reusing an authenticated session for anonymous 401 checks yields 403 — use a fresh Session. There is no DELETE for teachers; clean test teachers directly from Mongo (users collection). 5 wrong logins on one identifier => 423/15min, use throwaway usernames.",
+  "rca_of_the_issue": "No functional defects found this iteration. The two initial test failures were test-hygiene issues (shared session cookies, and old tests still posting {email,...} to the new {username,...} login schema) and were fixed in the test code only."
+}

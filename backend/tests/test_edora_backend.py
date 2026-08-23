@@ -22,7 +22,7 @@ class TestAuth:
         r = anon_client.post(f"{API}/auth/login", json=TEACHER, timeout=30)
         assert r.status_code == 200, r.text
         data = r.json()
-        assert data["email"] == TEACHER["email"]
+        assert data["username"] == TEACHER["username"]
         assert data["role"] == "teacher"
         raw = "; ".join(r.headers.get_all("Set-Cookie")) if hasattr(r.headers, "get_all") \
             else r.headers.get("Set-Cookie", "")
@@ -32,7 +32,7 @@ class TestAuth:
 
     def test_login_invalid_password(self, anon_client):
         r = anon_client.post(f"{API}/auth/login",
-                             json={"email": TEACHER["email"], "password": "wrong-pass"}, timeout=30)
+                             json={"username": TEACHER["username"], "password": "wrong-pass"}, timeout=30)
         assert r.status_code == 401
         assert "detail" in r.json()
 
@@ -58,7 +58,7 @@ class TestAuth:
 
         async def _check():
             c = AsyncIOMotorClient(env["MONGO_URL"])
-            return await c[env["DB_NAME"]].users.find_one({"email": TEACHER["email"]})
+            return await c[env["DB_NAME"]].users.find_one({"username": TEACHER["username"]})
 
         u = asyncio.run(_check())
         assert u is not None, "teacher user not seeded"
@@ -71,7 +71,7 @@ class TestAuth:
         codes = []
         for _ in range(6):
             r = s.post(f"{API}/auth/login",
-                       json={"email": email, "password": "bad-pass-x"}, timeout=30)
+                       json={"username": email, "password": "bad-pass-x"}, timeout=30)
             codes.append(r.status_code)
         assert 423 in codes, f"no 423 lockout, codes={codes}"
 

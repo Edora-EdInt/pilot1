@@ -26,7 +26,7 @@ class TestDualModeAuth:
         d = r.json()
         assert isinstance(d.get("token"), str) and len(d["token"]) > 40, d
         assert d["role"] == "teacher"
-        assert d["email"] == TEACHER["email"]
+        assert d["username"] == TEACHER["username"]
         assert "password_hash" not in d
 
     def test_me_with_bearer_only_no_cookies(self):
@@ -79,7 +79,7 @@ class TestDualModeAuth:
         codes = []
         for _ in range(6):
             codes.append(s.post(f"{API}/auth/login",
-                                json={"email": email, "password": "bad-pass-x"}, timeout=30).status_code)
+                                json={"username": email, "password": "bad-pass-x"}, timeout=30).status_code)
         assert 423 in codes, f"no lockout, codes={codes}"
 
 

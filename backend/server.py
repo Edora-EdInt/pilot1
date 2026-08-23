@@ -16,10 +16,11 @@ from bson import ObjectId
 
 from db import get_db
 from models import (RegisterInput, LoginInput, Blueprint, PublishInput,
-                    StartAttemptInput, IntegrityEventInput, SubmitInput, QuestionGenInput, now_iso)
+                    StartAttemptInput, IntegrityEventInput, SubmitInput, QuestionGenInput,
+                    TeacherCreateInput, TeacherUpdateInput, now_iso)
 from auth import (hash_password, verify_password, create_access_token,
                   create_refresh_token, set_auth_cookies, clear_auth_cookies,
-                  get_current_user, require_teacher)
+                  get_current_user, require_teacher, require_admin)
 from selector import QuestionSelector
 from seed import seed_all
 from ai import (grade_descriptive, generate_insight, assess_identity,
@@ -117,35 +118,39 @@ async def register(body: RegisterInput, response: Response):
 @api.post("/auth/login")
 async def login(body: LoginInput, request: Request, response: Response):
     db = get_db()
-    email = body.email.lower()
-    # Account-based lockout (per-IP is unreliable behind the k8s ingress, whose
-    # source IP rotates). Key on the normalized email.
-    ident = email
+    ident = body.username.strip().lower()
     now_ts = datetime.now(timezone.utc).timestamp()
     rec = await db.login_attempts.find_one({"_id": ident})
 
     locked = bool(rec and rec.get("count", 0) >= 5 and rec.get("locked_until", 0) > now_ts)
     if locked:
         raise HTTPException(status_code=423, detail="Too many failed attempts. Try again in a few minutes.")
-    # lock window elapsed -> start counting fresh
     expired = bool(rec and rec.get("count", 0) >= 5 and rec.get("locked_until", 0) <= now_ts)
 
-    user = await db.users.find_one({"email": email})
+    # Match by username OR email (email kept for backward compatibility)
+    user = await db.users.find_one({"$or": [{"username": ident}, {"email": ident}]})
     if not user or not verify_password(body.password, user["password_hash"]):
         base = 0 if (expired or not rec) else rec.get("count", 0)
         count = base + 1
         await db.login_attempts.update_one(
             {"_id": ident},
-            {"$set": {"count": count,
-                      "locked_until": now_ts + 900 if count >= 5 else 0}},
+            {"$set": {"count": count, "locked_until": now_ts + 900 if count >= 5 else 0}},
             upsert=True)
-        raise HTTPException(status_code=401, detail="Invalid email or password")
+        raise HTTPException(status_code=401, detail="Invalid username or password")
+
+    if user.get("disabled"):
+        raise HTTPException(status_code=403, detail="This account has been disabled. Contact your administrator.")
 
     await db.login_attempts.delete_one({"_id": ident})
     uid = str(user["_id"])
-    access = create_access_token(uid, email, user["role"])
+    access = create_access_token(uid, user.get("email", ""), user["role"])
     set_auth_cookies(response, access, create_refresh_token(uid))
-    return {"id": uid, "name": user["name"], "email": email, "role": user["role"], "token": access}
+    return {
+        "id": uid, "name": user["name"], "username": user.get("username"),
+        "email": user.get("email"), "role": user["role"],
+        "subjects": user.get("subjects", []), "classes": user.get("classes", []),
+        "token": access,
+    }
 
 
 @api.post("/auth/logout")
@@ -157,6 +162,92 @@ async def logout(response: Response, user=Depends(get_current_user)):
 @api.get("/auth/me")
 async def me(user=Depends(get_current_user)):
     return user
+
+
+# ── ADMIN: TEACHER MANAGEMENT ──
+def _teacher_public(u):
+    u = clean(u)
+    u.pop("password_hash", None)
+    u.pop("token", None)
+    return {
+        "id": u["id"], "name": u.get("name"), "username": u.get("username"),
+        "email": u.get("email", ""), "subjects": u.get("subjects", []),
+        "classes": u.get("classes", []), "disabled": bool(u.get("disabled", False)),
+        "createdAt": u.get("created_at"),
+    }
+
+
+@api.get("/admin/teachers")
+async def list_teachers(user=Depends(require_admin)):
+    db = get_db()
+    out = []
+    async for doc in db.users.find({"role": "teacher"}).sort("created_at", -1):
+        out.append(_teacher_public(doc))
+    return out
+
+
+@api.post("/admin/teachers")
+async def create_teacher(body: TeacherCreateInput, user=Depends(require_admin)):
+    db = get_db()
+    username = body.username.strip().lower()
+    if await db.users.find_one({"username": username}):
+        raise HTTPException(status_code=400, detail="That username is already taken.")
+    if body.email and await db.users.find_one({"email": body.email.lower()}):
+        raise HTTPException(status_code=400, detail="That email is already registered.")
+    doc = {
+        "name": body.name.strip(), "username": username,
+        "email": (body.email.lower().strip() or None), "password_hash": hash_password(body.password),
+        "role": "teacher", "subjects": body.subjects, "classes": body.classes,
+        "disabled": False, "created_at": now_iso(), "createdBy": user["id"],
+    }
+    res = await db.users.insert_one(doc)
+    doc["_id"] = res.inserted_id
+    return _teacher_public(doc)
+
+
+@api.put("/admin/teachers/{teacher_id}")
+async def update_teacher(teacher_id: str, body: TeacherUpdateInput, user=Depends(require_admin)):
+    db = get_db()
+    t = await db.users.find_one({"_id": to_oid(teacher_id), "role": "teacher"})
+    if not t:
+        raise HTTPException(status_code=404, detail="Teacher not found")
+    patch = {}
+    if body.name is not None:
+        patch["name"] = body.name.strip()
+    if body.email is not None:
+        patch["email"] = body.email.lower().strip()
+    if body.subjects is not None:
+        patch["subjects"] = body.subjects
+    if body.classes is not None:
+        patch["classes"] = body.classes
+    if body.password:
+        patch["password_hash"] = hash_password(body.password)
+    if patch:
+        await db.users.update_one({"_id": t["_id"]}, {"$set": patch})
+    updated = await db.users.find_one({"_id": t["_id"]})
+    return _teacher_public(updated)
+
+
+@api.patch("/admin/teachers/{teacher_id}/disable")
+async def toggle_teacher(teacher_id: str, user=Depends(require_admin)):
+    db = get_db()
+    t = await db.users.find_one({"_id": to_oid(teacher_id), "role": "teacher"})
+    if not t:
+        raise HTTPException(status_code=404, detail="Teacher not found")
+    new_state = not bool(t.get("disabled", False))
+    await db.users.update_one({"_id": t["_id"]}, {"$set": {"disabled": new_state}})
+    return {"id": teacher_id, "disabled": new_state}
+
+
+@api.post("/admin/teachers/{teacher_id}/send-credentials")
+async def send_credentials(teacher_id: str, user=Depends(require_admin)):
+    db = get_db()
+    t = await db.users.find_one({"_id": to_oid(teacher_id), "role": "teacher"})
+    if not t:
+        raise HTTPException(status_code=404, detail="Teacher not found")
+    return {"ok": True, "message": "Login credentials ready to share.",
+            "sentTo": t.get("email", "")}
+
 
 
 # ── CURRICULUM / BANK ──

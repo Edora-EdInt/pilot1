@@ -10,8 +10,10 @@ if not base_url:
 BASE_URL = base_url.rstrip("/")
 API = f"{BASE_URL}/api"
 
-TEACHER = {"email": "teacher@edora.io", "password": "Edora@2026"}
-STUDENT = {"email": "student@edora.io", "password": "Student@2026"}
+# Login is now username-based (username matches username OR email)
+ADMIN = {"username": "admin", "password": "Admin@2026"}
+TEACHER = {"username": "priya.math", "password": "Edora@2026"}
+STUDENT = {"username": "student@edora.io", "password": "Student@2026"}
 
 
 def _login(creds):
@@ -19,13 +21,22 @@ def _login(creds):
     s.headers.update({"Content-Type": "application/json"})
     r = s.post(f"{API}/auth/login", json=creds, timeout=30)
     if r.status_code != 200:
-        pytest.fail(f"Login failed for {creds['email']}: {r.status_code} {r.text[:300]}")
+        pytest.fail(f"Login failed for {creds['username']}: {r.status_code} {r.text[:300]}")
+    token = r.json().get("token")
+    if token:
+        s.headers.update({"Authorization": f"Bearer {token}"})
     return s, r
 
 
 @pytest.fixture(scope="session")
 def api_base():
     return API
+
+
+@pytest.fixture(scope="session")
+def admin_client():
+    s, _ = _login(ADMIN)
+    return s
 
 
 @pytest.fixture(scope="session")
