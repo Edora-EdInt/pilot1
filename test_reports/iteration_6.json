@@ -1,0 +1,54 @@
+{
+  "summary": "Full test of the new teacher-only Insights feature (9 analytics pages + /api/insights/* backend) plus a regression spot-check of the existing assessment engine. Backend: created /app/backend/tests/test_insights.py with 39 pytest cases covering auth gating, all 17 insights endpoints, data-integrity assertions (distribution sums == totals, min<=avg<=max, roster sorting, weakest-first mastery ordering, 404/422 error paths) — 39/39 passed. Re-ran the 3 pre-existing suites (81 tests) — all passed, so the assessment engine/auth is untouched. Frontend: Playwright-verified login, sidebar grouping (7 existing nav items intact + 9 new insights items in 3 labeled sub-groups), and all 9 pages end-to-end with real data (116 chapters, 878 questions, 5 real students, Class 10 roster, rules-based AI presets with 'Rule:' footers and no free-text box, practice generator returning real question text, adaptive engine level transitions Medium->Hard on 2 correct and Hard->Medium on 1 incorrect, answer log + reset). Admin correctly sees no Insights nav and is redirected away from /insights/* URLs. Two frontend defects found (1 functional dead-end in Adaptive Demo, 1 React duplicate-key/ambiguous-row issue in Question Bank Health).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "/api/insights/* (all)", "issue": "Gated by shared require_teacher, which also allows role=admin (auth.py line 82). Admin token returns 200 on every insights endpoint. The UI blocks admin, but the API does not — if the feature is meant to be strictly teacher-only, add a teacher-only dependency. Documented, not asserted as a failure."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "AdaptiveDemo (frontend/src/pages/insights/AdaptiveDemo.js line 118-130)",
+        "issue": "Dead-end: when the engine levels up to a difficulty that has no questions for the chosen chapter, the message 'No more questions at this difficulty. Reset to try again.' is shown but the Reset button is rendered INSIDE the `current` branch, so no Reset control exists — the demo session is unrecoverable without reloading the page. Reproduced: Class 10 / Mathematics / 'Areas Related to Circles' -> 2x Correct -> level Hard -> ad-no-more-questions=1, ad-reset-button=0.",
+        "selector": "[data-testid=\"ad-no-more-questions\"] / [data-testid=\"ad-reset-button\"]",
+        "priority": "HIGH"
+      },
+      {
+        "component": "QuestionBankHealth (line 56) + same pattern in QuestionTrends:52, ExamPatterns:46, StudentProfiles:107, AiInsights:35",
+        "issue": "React key is `${subject}-${chapter}` but the backend aggregates per (board, class, subject, chapter). 'Sets (Mathematics)' exists for both Class 9 and Class 10, producing repeated console warning 'Encountered two children with the same key' (4x) and two visually identical rows ('Sets (Mathematics) 1/10 - 10%') that a teacher cannot tell apart because the class is not displayed. Include board/class in the key and show the class label.",
+        "selector": "[data-testid=\"bh-completeness\"]",
+        "priority": "MEDIUM"
+      }
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Class Analytics", "issues": ["'Readiness mix' and 'Strong areas' cards stretch to the height of the long 'Needs improvement' list, leaving ~600px of empty whitespace in each; consider items-start on the grid or capping the weak-chapter list with a scroll area."]},
+      {"screen": "Question Bank Health", "issues": ["'Chapter completeness' rows omit board/class, so identically named chapters across classes look duplicated (see ui_bug above)."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_insights.py",
+    "/app/test_reports/pytest/iteration_6_insights.xml",
+    "/app/test_reports/pytest/iteration_6_regression.xml"
+  ],
+  "action_items": [
+    "AdaptiveDemo: move the Reset button (and level pills) outside the `current` conditional so the user can always reset when a difficulty bucket is exhausted; optionally fall back to the nearest non-empty level.",
+    "Include board+class in React keys for the insights list/table rows and display the class in Question Bank Health completeness rows (fixes duplicate-key warnings and ambiguous duplicate entries).",
+    "Optional: decide whether /api/insights/* should reject admin tokens (currently require_teacher permits admin)."
+  ],
+  "critical_code_review_comments": [
+    "insights.py: /insights/classes calls _answer_rows(db, klass) once per class, and _answer_rows re-scans all published exams + attempts on every request (no aggregation pipeline, no caching). Fine at current data volume (~110 answers) but it is O(exams x attempts) in Python and will degrade; consider Mongo aggregation or caching.",
+    "insights.py teaching-recommendations loads the ENTIRE questions collection into memory (db.questions.find({}) -> 878 docs) just to build a difficulty mix; restrict with a $match on the considered chapter keys.",
+    "practice/generate ranks/selects questions deterministically (slices the head of each difficulty bucket), so the same student always gets the same paper — add shuffling/seed if variety is expected.",
+    "insights.py is 662 lines and single-file — acceptable now, but splitting per feature area would help before it grows further."
+  ],
+  "updated_files": ["/app/backend/tests/test_insights.py", "/app/test_reports/iteration_6.json"],
+  "success_rate": {"backend": "100% (39/39 insights + 81/81 regression)", "frontend": "89% (8/9 pages fully pass; Adaptive Demo has a reset dead-end)"},
+  "seed_data_creation": "None. Used existing real data (878 questions, published exams, attempts by Aarav Sharma / TEST_Grader / TEST_LiveStudent / TEST_PdfStudent / Test Student). No test data created or deleted.",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": true,
+  "test_credentials": "Teacher priya.math / Edora@2026 and Admin admin / Admin@2026 both work as documented in /app/memory/test_credentials.md",
+  "context_for_next_testing_agent": "Insights backend is fully covered by /app/backend/tests/test_insights.py (run: pytest tests/test_insights.py from /app/backend). Login testids are username-input / password-input / submit-auth-button (NOT login-*). Sidebar nav testids are nav-insights/<slug>. Page testids: insights-<name>-page. Only 2 frontend defects remain (AdaptiveDemo reset dead-end, duplicate React keys in bank-health); after the main agent fixes them, a quick self-verify on /insights/adaptive and /insights/bank-health is sufficient. Note bank health now reports 878 questions (not 874) due to earlier test-created questions.",
+  "rca_of_the_issue": "AdaptiveDemo: the Reset <Button> is nested inside the `current ? (...)` JSX branch, and `current` becomes null whenever levels[engine.level] is empty. Backend /insights/adaptive/questions legitimately returns an empty array for a difficulty a chapter has no questions in (e.g. no Hard questions for 'Areas Related to Circles'), so after two correct answers the engine promotes to Hard, current becomes null, and the only recovery control is unmounted. Fix = hoist Reset out of the conditional. QuestionBankHealth: key collision because the aggregation key is (board,class,subject,chapter) while the React key only uses (subject,chapter)."
+}

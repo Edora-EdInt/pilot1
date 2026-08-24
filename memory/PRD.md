@@ -40,11 +40,32 @@ JWT roles, generate/publish fidelity (by qid), sanitized student payload, per-at
 ## Backlog / Optional polish (from test reports)
 - Auto-expire abandoned in_progress attempts (currently filtered in the live feed by startedAt+duration).
 - Split server.py into routers; dedicated FaceCheckInput model; question-approval workflow + delete UI; TTL index on login_attempts.
+- Insights: `_answer_rows`/`teaching-recommendations` re-scan all attempts/questions in Python per request (fine at current volume ~900 questions/~90 answers; consider Mongo aggregation if it grows). Practice Generator selection is deterministic (same paper each call) — add shuffling if variety desired.
+
+## Auth & User Management (2026-08-24)
+- Roles: **admin** (username `admin`) and **teacher** (username + password, email still accepted for back-compat). No public self-register for teachers — admin creates accounts.
+- Admin: `/admin` → Manage Teachers (create/edit/disable, assign subjects+classes, auto-generated temp password + regenerate, "Send Login Credentials" — placeholder UI only, NO real email sent).
+- Teacher dashboard shows assigned Teaching Portfolio (subjects × classes) with quick links.
+- Auth is Bearer token in localStorage (`edora_token`), not cookies — proxy/CORS behind this preview rejects credentialed cross-origin cookie requests; do not revert to cookie-only auth.
+- Account-based brute-force lockout: 5 fails → 423.
+- Fully tested: backend 81/81, frontend 100% (iteration 5).
+
+## Insights (EdInt Intelligence port) — 2026-08-24
+Ported all 9 analytics pages from the standalone `github.com/Edora-EdInt/exam-intelligence` project into Edora as ONE teacher-only feature, using Edora's REAL Mongo data (not that project's fake JSON). Assessment engine/blueprint/question-generation/exam workflow were NOT touched.
+- **Backend**: `/app/backend/insights.py` (new file, ~460 lines) — `/api/insights/*`, gated by a local strict `require_teacher` (admin explicitly rejected 403, unlike the shared app-wide `auth.require_teacher` which allows admin). Wired into `server.py` via one import + `include_router`.
+- **Frontend**: `/app/frontend/src/pages/insights/` — 9 pages + shared `PracticeResult.js`. New grouped sidebar section in `Layout.js` (3 labeled sub-groups: Question Intelligence, Student Performance, Assistant) below existing teacher nav; admin nav unchanged. 9 new routes in `App.js` under `TeacherRoute`.
+- **Mapping decisions** (Edora has no persistent Student/Class-section entities, unlike the source project):
+  - "student" = free-text `studentName` typed at attempt start (no student accounts exist in Edora).
+  - "class" = an exam's `class` (grade 9/10/11/12) — no section concept.
+  - "concept" trends → chapter-level trends (questions have no concept tag).
+  - "errorType" (Formula/Calculation/Concept) → real `questionType` (MCQ/Short/Long/etc) breakdowns instead of a fabricated taxonomy.
+  - Practice Generator returns REAL question text from the bank (source project only had placeholders).
+- **Pages**: Chapter Intelligence, Question Trends, Exam Patterns, Question Bank Health, Student Profiles, Class Analytics, AI Insights (3 rules-based presets, NOT an LLM chat), Practice Generator, Adaptive Demo (client-side engine: 2 correct → level up, 1 incorrect → level down).
+- **Tested**: backend 39/39 new pytest cases (`/app/backend/tests/test_insights.py`) + 81/81 regression, frontend 9/9 pages pass after fixing (a) Adaptive Demo reset dead-end when a difficulty bucket is empty, (b) duplicate React keys / ambiguous same-named chapters across classes in Bank Health + other list views, (c) admin now correctly 403'd from `/api/insights/*`.
 
 
 ## Credentials
-- Teacher: teacher@edora.io / Edora@2026
-- Student: student@edora.io / Student@2026 (or self-register; students can also join via code without login)
+See `/app/memory/test_credentials.md` for current admin/teacher login (username + password based, not email-first).
 
 ## Known limitations / Backlog
 - Face-match on identity photo not implemented (photo is captured/stored only).

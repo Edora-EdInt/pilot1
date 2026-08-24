@@ -14,6 +14,15 @@ import LiveProctoring from "./pages/LiveProctoring";
 import QuestionStudio from "./pages/QuestionStudio";
 import ManageTeachers from "./pages/ManageTeachers";
 import StudentExam from "./pages/StudentExam";
+import ChapterIntelligence from "./pages/insights/ChapterIntelligence";
+import QuestionTrends from "./pages/insights/QuestionTrends";
+import ExamPatterns from "./pages/insights/ExamPatterns";
+import QuestionBankHealth from "./pages/insights/QuestionBankHealth";
+import StudentProfiles from "./pages/insights/StudentProfiles";
+import ClassAnalytics from "./pages/insights/ClassAnalytics";
+import AiInsights from "./pages/insights/AiInsights";
+import PracticeGenerator from "./pages/insights/PracticeGenerator";
+import AdaptiveDemo from "./pages/insights/AdaptiveDemo";
 
 function TeacherRoute({ children }) {
   const { user } = useAuth();
@@ -52,6 +61,15 @@ function Shell() {
       <Route path="/proctoring" element={<TeacherRoute><LiveProctoring /></TeacherRoute>} />
       <Route path="/attempts" element={<TeacherRoute><Attempts /></TeacherRoute>} />
       <Route path="/analytics" element={<TeacherRoute><Analytics /></TeacherRoute>} />
+      <Route path="/insights/chapters" element={<TeacherRoute><ChapterIntelligence /></TeacherRoute>} />
+      <Route path="/insights/trends" element={<TeacherRoute><QuestionTrends /></TeacherRoute>} />
+      <Route path="/insights/patterns" element={<TeacherRoute><ExamPatterns /></TeacherRoute>} />
+      <Route path="/insights/bank-health" element={<TeacherRoute><QuestionBankHealth /></TeacherRoute>} />
+      <Route path="/insights/students" element={<TeacherRoute><StudentProfiles /></TeacherRoute>} />
+      <Route path="/insights/classes" element={<TeacherRoute><ClassAnalytics /></TeacherRoute>} />
+      <Route path="/insights/ai" element={<TeacherRoute><AiInsights /></TeacherRoute>} />
+      <Route path="/insights/practice" element={<TeacherRoute><PracticeGenerator /></TeacherRoute>} />
+      <Route path="/insights/adaptive" element={<TeacherRoute><AdaptiveDemo /></TeacherRoute>} />
       <Route path="*" element={<HomeRedirect />} />
     </Routes>
   );

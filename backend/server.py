@@ -25,6 +25,7 @@ from selector import QuestionSelector
 from seed import seed_all
 from ai import (grade_descriptive, generate_insight, assess_identity,
                 verify_face, generate_questions)
+from insights import router as insights_router
 
 app = FastAPI(title="Edora v2 API")
 api = APIRouter(prefix="/api")
@@ -806,6 +807,7 @@ async def attempt_pdf(attempt_id: str, user=Depends(require_teacher)):
 
 
 app.include_router(api)
+app.include_router(insights_router)
 
 app.add_middleware(
     CORSMiddleware,

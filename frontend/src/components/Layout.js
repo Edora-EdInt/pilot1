@@ -1,28 +1,60 @@
 import React, { useState } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
-import { LayoutDashboard, FilePlus2, BookCheck, Users, BarChart3, LogOut, Menu, Radio, Wand2, UserCog } from "lucide-react";
+import {
+  LayoutDashboard, FilePlus2, BookCheck, Users, BarChart3, LogOut, Menu, Radio, Wand2, UserCog,
+  BookOpen, LineChart, ClipboardList, HeartPulse, UserSquare2, Sparkles, Shuffle, SlidersHorizontal,
+} from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import { Button } from "./ui";
 
-const TEACHER_NAV = [
-  { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { to: "/generate", label: "Generate Exam", icon: FilePlus2 },
-  { to: "/studio", label: "AI Question Studio", icon: Wand2 },
-  { to: "/exams", label: "Published Exams", icon: BookCheck },
-  { to: "/proctoring", label: "Live Proctoring", icon: Radio },
-  { to: "/attempts", label: "Attempts & Integrity", icon: Users },
-  { to: "/analytics", label: "Analytics", icon: BarChart3 },
+const TEACHER_NAV_GROUPS = [
+  {
+    label: null,
+    items: [
+      { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+      { to: "/generate", label: "Generate Exam", icon: FilePlus2 },
+      { to: "/studio", label: "AI Question Studio", icon: Wand2 },
+      { to: "/exams", label: "Published Exams", icon: BookCheck },
+      { to: "/proctoring", label: "Live Proctoring", icon: Radio },
+      { to: "/attempts", label: "Attempts & Integrity", icon: Users },
+      { to: "/analytics", label: "Analytics", icon: BarChart3 },
+    ],
+  },
+  {
+    label: "Insights · Question Intelligence",
+    items: [
+      { to: "/insights/chapters", label: "Chapter Intelligence", icon: BookOpen },
+      { to: "/insights/trends", label: "Question Trends", icon: LineChart },
+      { to: "/insights/patterns", label: "Exam Patterns", icon: ClipboardList },
+      { to: "/insights/bank-health", label: "Question Bank Health", icon: HeartPulse },
+    ],
+  },
+  {
+    label: "Insights · Student Performance",
+    items: [
+      { to: "/insights/students", label: "Student Profiles", icon: UserSquare2 },
+      { to: "/insights/classes", label: "Class Analytics", icon: BarChart3 },
+    ],
+  },
+  {
+    label: "Insights · Assistant",
+    items: [
+      { to: "/insights/ai", label: "AI Insights", icon: Sparkles },
+      { to: "/insights/practice", label: "Practice Generator", icon: Shuffle },
+      { to: "/insights/adaptive", label: "Adaptive Demo", icon: SlidersHorizontal },
+    ],
+  },
 ];
 
-const ADMIN_NAV = [
-  { to: "/admin", label: "Manage Teachers", icon: UserCog },
+const ADMIN_NAV_GROUPS = [
+  { label: null, items: [{ to: "/admin", label: "Manage Teachers", icon: UserCog }] },
 ];
 
 export default function Layout({ children }) {
   const { user, logout } = useAuth();
   const nav = useNavigate();
   const [open, setOpen] = useState(false);
-  const NAV = user?.role === "admin" ? ADMIN_NAV : TEACHER_NAV;
+  const NAV_GROUPS = user?.role === "admin" ? ADMIN_NAV_GROUPS : TEACHER_NAV_GROUPS;
 
   const doLogout = async () => {
     await logout();
@@ -37,22 +69,31 @@ export default function Layout({ children }) {
           Ed<span className="text-primary">ora</span>
         </span>
       </div>
-      <nav className="flex-1 px-3 space-y-1">
-        {NAV.map(({ to, label, icon: Icon }) => (
-          <NavLink
-            key={to}
-            to={to}
-            data-testid={`nav-${to.slice(1)}`}
-            onClick={() => setOpen(false)}
-            className={({ isActive }) =>
-              `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
-                isActive ? "bg-secondary text-white" : "text-ink2 hover:text-ink hover:bg-line/60"
-              }`
-            }
-          >
-            <Icon className="w-4.5 h-4.5" strokeWidth={1.5} />
-            {label}
-          </NavLink>
+      <nav className="flex-1 px-3 space-y-1 overflow-y-auto pb-3" data-testid="sidebar-nav">
+        {NAV_GROUPS.map((group, gi) => (
+          <div key={group.label || `group-${gi}`} className={gi > 0 ? "pt-3 mt-2 border-t border-line/70" : ""}>
+            {group.label && (
+              <div className="px-3 pb-1.5 pt-1 text-[11px] font-semibold uppercase tracking-wide text-ink2/70" data-testid={`nav-group-${group.label}`.replace(/\s+/g, "-")}>
+                {group.label}
+              </div>
+            )}
+            {group.items.map(({ to, label, icon: Icon }) => (
+              <NavLink
+                key={to}
+                to={to}
+                data-testid={`nav-${to.slice(1)}`}
+                onClick={() => setOpen(false)}
+                className={({ isActive }) =>
+                  `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
+                    isActive ? "bg-secondary text-white" : "text-ink2 hover:text-ink hover:bg-line/60"
+                  }`
+                }
+              >
+                <Icon className="w-4.5 h-4.5" strokeWidth={1.5} />
+                {label}
+              </NavLink>
+            ))}
+          </div>
         ))}
       </nav>
       <div className="p-3 border-t border-line">
