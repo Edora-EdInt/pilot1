@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from "react";
-import { Sparkles, Flag, Users, ClipboardList, Target } from "lucide-react";
-import api from "../../api";
-import { Card, Badge, Select, Spinner } from "../../components/ui";
+import { toast } from "sonner";
+import { Sparkles, Flag, Users, ClipboardList, Target, Download } from "lucide-react";
+import api, { downloadPdf } from "../../api";
+import { Card, Badge, Select, Spinner, Button } from "../../components/ui";
 
 const PRESETS = {
   revise: { title: "Which chapters should I revise before boards?", icon: Flag },
@@ -113,6 +114,7 @@ export default function AiInsights() {
   const [kind, setKind] = useState(null);
   const [result, setResult] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [exporting, setExporting] = useState(false);
 
   useEffect(() => {
     api.get("/insights/classes").then(({ data }) => { setClasses(data); if (data[0]) setKlass(String(data[0].class)); })
@@ -131,14 +133,30 @@ export default function AiInsights() {
     finally { setBusy(false); }
   };
 
+  const exportPdf = async () => {
+    setExporting(true);
+    try {
+      await downloadPdf(`/insights/classes/${encodeURIComponent(klass)}/ai-report/pdf`, `Edora_Class${klass}_AI_Insights.pdf`);
+      toast.success("AI Insights report downloaded");
+    } catch { toast.error("Could not export the PDF."); }
+    finally { setExporting(false); }
+  };
+
   return (
     <div className="p-6 lg:p-10 max-w-7xl mx-auto" data-testid="insights-ai-insights-page">
-      <div className="flex items-center gap-3 mb-6">
-        <Sparkles className="w-7 h-7 text-primary" strokeWidth={1.5} />
-        <div>
-          <h1 className="font-heading font-extrabold text-3xl tracking-tight">AI Insights</h1>
-          <p className="text-ink2">Rules-based teacher assistant — every answer traces back to a stated rule, no free-form chat.</p>
+      <div className="flex items-center gap-3 mb-6 flex-wrap justify-between">
+        <div className="flex items-center gap-3">
+          <Sparkles className="w-7 h-7 text-primary" strokeWidth={1.5} />
+          <div>
+            <h1 className="font-heading font-extrabold text-3xl tracking-tight">AI Insights</h1>
+            <p className="text-ink2">Rules-based teacher assistant — every answer traces back to a stated rule, no free-form chat.</p>
+          </div>
         </div>
+        {klass && (
+          <Button variant="outline" onClick={exportPdf} disabled={exporting} data-testid="ai-export-pdf-button">
+            {exporting ? <Spinner className="w-4 h-4" /> : <Download className="w-4 h-4" />} Download Full Report PDF
+          </Button>
+        )}
       </div>
 
       <div className="max-w-xs mb-5">

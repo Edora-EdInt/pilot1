@@ -51,8 +51,10 @@ def student_client():
     return s
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture
 def anon_client():
+    """Function-scoped so no earlier test can leak an Authorization header
+    into anonymous-access assertions (was session-scoped and got polluted)."""
     s = requests.Session()
     s.headers.update({"Content-Type": "application/json"})
     return s

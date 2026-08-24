@@ -63,6 +63,16 @@ Ported all 9 analytics pages from the standalone `github.com/Edora-EdInt/exam-in
 - **Pages**: Chapter Intelligence, Question Trends, Exam Patterns, Question Bank Health, Student Profiles, Class Analytics, AI Insights (3 rules-based presets, NOT an LLM chat), Practice Generator, Adaptive Demo (client-side engine: 2 correct → level up, 1 incorrect → level down).
 - **Tested**: backend 39/39 new pytest cases (`/app/backend/tests/test_insights.py`) + 81/81 regression, frontend 9/9 pages pass after fixing (a) Adaptive Demo reset dead-end when a difficulty bucket is empty, (b) duplicate React keys / ambiguous same-named chapters across classes in Bank Health + other list views, (c) admin now correctly 403'd from `/api/insights/*`.
 
+## Insights follow-ups (2026-08-24, same day)
+User picked 4 next-action items; all 4 built and tested (156/1 backend pytest, 100% frontend):
+- **PDF export**: `/api/insights/classes/{klass}/analytics/pdf` and `.../ai-report/pdf` (reportlab, teacher-only) + "Download PDF" buttons on Class Analytics and AI Insights pages.
+- **Weak Chapter Alerts**: `/api/insights/alerts` (teacher-scoped to their own subjects/classes) + red banner on Dashboard linking to AI Insights when count > 0.
+- **Practice variety**: `practice/generate` now shuffles difficulty buckets + final list (was deterministic before).
+- **Adaptive Live Session** (`backend/adaptive.py`, new `adaptive_sessions` Mongo collection) — per explicit user clarification, this is a SEPARATE UNGRADED join-code practice quiz, NOT a formal exam type; does not touch exams/attempts/integrity/proctoring. MCQ-only (server-side instant grading needed for real-time difficulty adjustment). Teacher launches from Insights > Adaptive Demo > "Live Session" tab (`AdaptiveLiveSession.js`, polls every 4s to monitor live participants); students join at the new public route `/practice` (`AdaptivePractice.js`, no login, mirrors `/exam`'s public pattern) with a code + name. Same 2-correct-up/1-incorrect-down rule as the teacher sandbox.
+  - **Real-data constraint**: 343/344 MCQs in the bank are tagged difficulty=Easy (Medium/Hard is used almost exclusively for Short/Long answer types). `_pick_question` falls back to any unused MCQ in-pool when the exact tier is empty, so sessions rarely dead-end — Medium/Hard level badges may still mostly serve Easy-tagged content until more difficulty-varied MCQs exist in the bank. This is intentional/documented, not a bug.
+  - Fixed a string-comparison bug found during build (`"Easy" > "Medium"` is lexicographic, not level order) in the student-facing level-up/down message.
+  - Fixed post-testing: clipboard copy-code now has a try/catch + toast fallback; Class Analytics strong/weak chapter lists capped to 8 with "+N more" and a low-sample-size hint.
+
 
 ## Credentials
 See `/app/memory/test_credentials.md` for current admin/teacher login (username + password based, not email-first).

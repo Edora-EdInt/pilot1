@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { FileText, Users, Database, Gauge, Sparkles, FilePlus2, BookCheck, BarChart3, ArrowUpRight, GraduationCap, Layers } from "lucide-react";
+import { FileText, Users, Database, Gauge, Sparkles, FilePlus2, BookCheck, BarChart3, ArrowUpRight, GraduationCap, Layers, TriangleAlert } from "lucide-react";
 import api from "../api";
 import { useAuth } from "../context/AuthContext";
 import { Card, Badge, Spinner } from "../components/ui";
@@ -21,6 +21,7 @@ const StatCard = ({ icon: Icon, label, value, suffix, testid }) => (
 
 export default function Dashboard() {
   const [stats, setStats] = useState(null);
+  const [alerts, setAlerts] = useState(null);
   const nav = useNavigate();
   const { user } = useAuth();
   const subjects = user?.subjects || [];
@@ -28,6 +29,7 @@ export default function Dashboard() {
 
   useEffect(() => {
     api.get("/dashboard/stats").then(({ data }) => setStats(data)).catch(() => setStats(false));
+    api.get("/insights/alerts").then(({ data }) => setAlerts(data)).catch(() => setAlerts(null));
   }, []);
 
   const hour = new Date().getHours();
@@ -91,6 +93,30 @@ export default function Dashboard() {
             ))}
           </div>
         </div>
+      )}
+
+      {alerts?.count > 0 && (
+        <button onClick={() => nav("/insights/ai")} data-testid="weak-chapter-alert-banner"
+          className="w-full text-left mb-8 block">
+          <Card className="p-5 border-danger/40 bg-danger/5 hover:border-danger transition-colors flex items-start gap-4">
+            <div className="w-10 h-10 rounded-lg bg-danger/10 grid place-items-center text-danger shrink-0">
+              <TriangleAlert className="w-5 h-5" strokeWidth={1.5} />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="font-heading font-bold text-ink">
+                  {alerts.count} chapter{alerts.count === 1 ? "" : "s"} flagged high-priority to revise
+                </span>
+                <Badge tone="danger">AI Insights</Badge>
+              </div>
+              <p className="text-sm text-ink2 mt-1 truncate">
+                {alerts.items[0] && `${alerts.items[0].chapter} (${alerts.items[0].subject} · Class ${alerts.items[0].class}) — ${alerts.items[0].classAverageMasteryPct}% mastery`}
+                {alerts.count > 1 ? ` and ${alerts.count - 1} more` : ""} · click to see the full rules-based report
+              </p>
+            </div>
+            <ArrowUpRight className="w-4 h-4 text-danger shrink-0 mt-1" />
+          </Card>
+        </button>
       )}
 
       {!stats ? (

@@ -14,6 +14,7 @@ import LiveProctoring from "./pages/LiveProctoring";
 import QuestionStudio from "./pages/QuestionStudio";
 import ManageTeachers from "./pages/ManageTeachers";
 import StudentExam from "./pages/StudentExam";
+import AdaptivePractice from "./pages/AdaptivePractice";
 import ChapterIntelligence from "./pages/insights/ChapterIntelligence";
 import QuestionTrends from "./pages/insights/QuestionTrends";
 import ExamPatterns from "./pages/insights/ExamPatterns";
@@ -53,6 +54,7 @@ function Shell() {
     <Routes>
       <Route path="/login" element={<Login />} />
       <Route path="/exam" element={<StudentExam />} />
+      <Route path="/practice" element={<AdaptivePractice />} />
       <Route path="/admin" element={<AdminRoute><ManageTeachers /></AdminRoute>} />
       <Route path="/dashboard" element={<TeacherRoute><Dashboard /></TeacherRoute>} />
       <Route path="/generate" element={<TeacherRoute><GenerateExam /></TeacherRoute>} />

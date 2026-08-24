@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from "react";
-import { BarChart3 } from "lucide-react";
-import api from "../../api";
-import { Card, Badge, Spinner, Select } from "../../components/ui";
+import { toast } from "sonner";
+import { BarChart3, Download } from "lucide-react";
+import api, { downloadPdf } from "../../api";
+import { Card, Badge, Spinner, Select, Button } from "../../components/ui";
 
 const READINESS_TONE = { Excellent: "success", Good: "primary", "Needs Work": "accent", "At Risk": "danger" };
 const READINESS_BG = { Excellent: "bg-success", Good: "bg-primary", "Needs Work": "bg-accent", "At Risk": "bg-danger" };
@@ -10,6 +11,7 @@ export default function ClassAnalytics() {
   const [classes, setClasses] = useState(null);
   const [klass, setKlass] = useState("");
   const [data, setData] = useState(null);
+  const [exporting, setExporting] = useState(false);
 
   useEffect(() => {
     api.get("/insights/classes").then(({ data }) => { setClasses(data); if (data[0]) setKlass(String(data[0].class)); })
@@ -22,14 +24,30 @@ export default function ClassAnalytics() {
     api.get(`/insights/classes/${encodeURIComponent(klass)}/analytics`).then(({ data }) => setData(data)).catch(() => setData(false));
   }, [klass]);
 
+  const exportPdf = async () => {
+    setExporting(true);
+    try {
+      await downloadPdf(`/insights/classes/${encodeURIComponent(klass)}/analytics/pdf`, `Edora_Class${klass}_Analytics.pdf`);
+      toast.success("Class Analytics PDF downloaded");
+    } catch { toast.error("Could not export the PDF."); }
+    finally { setExporting(false); }
+  };
+
   return (
     <div className="p-6 lg:p-10 max-w-7xl mx-auto" data-testid="insights-class-analytics-page">
-      <div className="flex items-center gap-3 mb-6">
-        <BarChart3 className="w-7 h-7 text-primary" strokeWidth={1.5} />
-        <div>
-          <h1 className="font-heading font-extrabold text-3xl tracking-tight">Class Analytics</h1>
-          <p className="text-ink2">Cohort performance, readiness mix, roster and chapter strengths/weaknesses.</p>
+      <div className="flex items-center gap-3 mb-6 flex-wrap justify-between">
+        <div className="flex items-center gap-3">
+          <BarChart3 className="w-7 h-7 text-primary" strokeWidth={1.5} />
+          <div>
+            <h1 className="font-heading font-extrabold text-3xl tracking-tight">Class Analytics</h1>
+            <p className="text-ink2">Cohort performance, readiness mix, roster and chapter strengths/weaknesses.</p>
+          </div>
         </div>
+        {data && (
+          <Button variant="outline" onClick={exportPdf} disabled={exporting} data-testid="ca-export-pdf-button">
+            {exporting ? <Spinner className="w-4 h-4" /> : <Download className="w-4 h-4" />} Download PDF
+          </Button>
+        )}
       </div>
 
       <div className="max-w-xs mb-6">
@@ -69,16 +87,29 @@ export default function ClassAnalytics() {
             <Card className="p-5">
               <h3 className="font-heading font-bold mb-3">Strong areas</h3>
               <p className="text-xs text-ink2 mb-2">Class mastery &ge; 80% across {data.totals.students} students.</p>
-              {!data.strongAreas.length ? <p className="text-sm text-ink2">None yet</p> : data.strongAreas.map((c) => (
-                <div key={`${c.board}-${c.class}-${c.subject}-${c.chapter}`} className="text-sm flex justify-between py-1"><span className="truncate">{c.chapter}</span><span className="font-mono">{c.masteryPct}%</span></div>
-              ))}
+              {!data.strongAreas.length ? <p className="text-sm text-ink2">None yet</p> : (
+                <>
+                  {data.strongAreas.slice(0, 8).map((c) => (
+                    <div key={`${c.board}-${c.class}-${c.subject}-${c.chapter}`} className="text-sm flex justify-between py-1"><span className="truncate">{c.chapter}</span><span className="font-mono">{c.masteryPct}%</span></div>
+                  ))}
+                  {data.strongAreas.length > 8 && <p className="text-xs text-ink2 pt-1">+{data.strongAreas.length - 8} more</p>}
+                </>
+              )}
             </Card>
             <Card className="p-5">
               <h3 className="font-heading font-bold mb-3">Needs improvement</h3>
               <p className="text-xs text-ink2 mb-2">Class mastery &lt; 60% — weakest listed first.</p>
-              {!data.needsImprovement.length ? <p className="text-sm text-ink2">None yet</p> : data.needsImprovement.map((c) => (
-                <div key={`${c.board}-${c.class}-${c.subject}-${c.chapter}`} className="text-sm flex justify-between py-1"><span className="truncate">{c.chapter}</span><span className="font-mono">{c.masteryPct}%</span></div>
-              ))}
+              {data.totals.answers < 20 && data.needsImprovement.length > 0 && (
+                <p className="text-xs text-accent mb-2">Small sample so far ({data.totals.answers} answers) — scores may shift as more attempts come in.</p>
+              )}
+              {!data.needsImprovement.length ? <p className="text-sm text-ink2">None yet</p> : (
+                <>
+                  {data.needsImprovement.slice(0, 8).map((c) => (
+                    <div key={`${c.board}-${c.class}-${c.subject}-${c.chapter}`} className="text-sm flex justify-between py-1"><span className="truncate">{c.chapter}</span><span className="font-mono">{c.masteryPct}%</span></div>
+                  ))}
+                  {data.needsImprovement.length > 8 && <p className="text-xs text-ink2 pt-1">+{data.needsImprovement.length - 8} more</p>}
+                </>
+              )}
             </Card>
           </div>
 

@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from "react";
-import { SlidersHorizontal, Check, X, RotateCcw } from "lucide-react";
+import { SlidersHorizontal, Check, X, RotateCcw, FlaskConical, Radio } from "lucide-react";
 import api from "../../api";
 import { Card, Select, Button } from "../../components/ui";
+import AdaptiveLiveSession from "./AdaptiveLiveSession";
 
 const LEVELS = ["Easy", "Medium", "Hard"];
 const STEPS_UP = 2;
@@ -42,6 +43,7 @@ function useAdaptiveEngine() {
 }
 
 export default function AdaptiveDemo() {
+  const [tab, setTab] = useState("sandbox");
   const [meta, setMeta] = useState(null);
   const [filters, setFilters] = useState({ board: "CBSE", klass: "", subject: "", chapter: "" });
   const [chapters, setChapters] = useState([]);
@@ -81,10 +83,23 @@ export default function AdaptiveDemo() {
         <SlidersHorizontal className="w-7 h-7 text-primary" strokeWidth={1.5} />
         <div>
           <h1 className="font-heading font-extrabold text-3xl tracking-tight">Adaptive Demo</h1>
-          <p className="text-ink2">Verify the difficulty-adjustment rules with real bank questions before wiring into a live exam flow.</p>
+          <p className="text-ink2">Verify the difficulty rules solo, or launch a live MCQ practice session your class can join.</p>
         </div>
       </div>
 
+      <div className="flex gap-2 mb-6" data-testid="ad-tabs">
+        <button onClick={() => setTab("sandbox")} data-testid="ad-tab-sandbox"
+          className={`inline-flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-colors ${tab === "sandbox" ? "bg-primary text-white" : "border border-line text-ink2 hover:text-ink"}`}>
+          <FlaskConical className="w-4 h-4" /> Sandbox
+        </button>
+        <button onClick={() => setTab("live")} data-testid="ad-tab-live"
+          className={`inline-flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-colors ${tab === "live" ? "bg-primary text-white" : "border border-line text-ink2 hover:text-ink"}`}>
+          <Radio className="w-4 h-4" /> Live Session
+        </button>
+      </div>
+
+      {tab === "live" ? <AdaptiveLiveSession /> : (
+      <>
       <Card className="p-5 mb-6 grid sm:grid-cols-4 gap-3 items-end">
         <Select label="Class" testid="ad-filter-class" value={filters.klass} onChange={(e) => setFilters({ ...filters, klass: e.target.value })}>
           <option value="">Class</option>
@@ -151,6 +166,8 @@ export default function AdaptiveDemo() {
             </div>
           </Card>
         </div>
+      )}
+      </>
       )}
     </div>
   );

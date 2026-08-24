@@ -19,6 +19,7 @@ Mapping notes (Edora has no persistent Student/Class-section entities):
     the source project only had placeholder prompts).
 """
 import statistics
+import random
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 
@@ -454,9 +455,7 @@ async def class_analytics(klass: str, user=Depends(require_teacher)):
 
 
 # ══════════════════════ 7. AI Insights (rules-based, no LLM) ══════════════════════
-@router.get("/classes/{klass}/teaching-recommendations")
-async def teaching_recommendations(klass: str, user=Depends(require_teacher)):
-    db = get_db()
+async def _teaching_recommendations(db, klass):
     rows = await _answer_rows(db, klass=klass)
     if not rows:
         return {"items": [], "struggleThreshold": STRUGGLE_CHAPTER_PCT, "weightageAboveMedianAvgMarks": None}
@@ -527,6 +526,11 @@ async def teaching_recommendations(klass: str, user=Depends(require_teacher)):
     items = [items[i] for i in order]
     return {"items": items, "struggleThreshold": STRUGGLE_CHAPTER_PCT,
             "weightageAboveMedianAvgMarks": median_weight, "evaluatedChapters": len(considered)}
+
+
+@router.get("/classes/{klass}/teaching-recommendations")
+async def teaching_recommendations(klass: str, user=Depends(require_teacher)):
+    return await _teaching_recommendations(get_db(), klass)
 
 
 @router.get("/classes/{klass}/students-at-risk")
@@ -616,6 +620,8 @@ async def practice_generate(body: PracticeGenerateInput, user=Depends(require_te
     buckets = {"Easy": [], "Medium": [], "Hard": []}
     for q in eligible:
         buckets.setdefault(q.get("difficulty", "Medium"), []).append(q)
+    for bucket in buckets.values():
+        random.shuffle(bucket)
 
     weight_sum = sum(PRACTICE_DIFFICULTY_WEIGHTS.values())
     quota = {lvl: int(count * w / weight_sum) for lvl, w in PRACTICE_DIFFICULTY_WEIGHTS.items()}
@@ -631,7 +637,9 @@ async def practice_generate(body: PracticeGenerateInput, user=Depends(require_te
     shortfall = count - len(selected)
     if shortfall > 0:
         remaining = [q for q in eligible if q.get("qid") not in selected_ids]
+        random.shuffle(remaining)
         selected.extend(remaining[:shortfall])
+    random.shuffle(selected)
 
     def clean_q(q):
         return {"qid": q.get("qid"), "question": q.get("question"), "subject": q.get("subject"),
@@ -667,3 +675,147 @@ async def adaptive_questions(board: str = "CBSE", klass: str = "10", subject: st
         out[lvl] = [{"qid": d.get("qid"), "question": d.get("question"), "marks": d.get("marks"),
                     "questionType": d.get("questionType")} for d in buckets.get(lvl, [])[:perLevel]]
     return {"levels": out}
+
+
+# ══════════════════════ Weak Chapter Alerts (dashboard) ══════════════════════
+@router.get("/alerts")
+async def insights_alerts(user=Depends(require_teacher)):
+    """Cross-class high-priority struggling-chapter alerts for the logged-in
+    teacher's own assigned classes/subjects, for a Dashboard badge."""
+    db = get_db()
+    teacher_classes = user.get("classes") or []
+    teacher_subjects = set(user.get("subjects") or [])
+    klasses = []
+    for c in teacher_classes:
+        digits = "".join(ch for ch in str(c) if ch.isdigit())
+        if digits:
+            klasses.append(digits)
+    if not klasses:
+        klasses = [str(c) for c in await db.exams.distinct("class", {"status": "published"})]
+
+    items = []
+    seen = set()
+    for klass in sorted(set(klasses)):
+        data = await _teaching_recommendations(db, klass)
+        for it in data.get("items", []):
+            if it["severity"] != "high":
+                continue
+            if teacher_subjects and it["subject"] not in teacher_subjects:
+                continue
+            key = (it["board"], it["class"], it["subject"], it["chapter"])
+            if key in seen:
+                continue
+            seen.add(key)
+            items.append(it)
+    items.sort(key=lambda x: x["classAverageMasteryPct"])
+    return {"count": len(items), "items": items[:5]}
+
+
+# ══════════════════════ PDF export ══════════════════════
+def _esc(s):
+    return (str(s or "")).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
+def _pdf_response(build_fn, filename):
+    from io import BytesIO
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.units import mm
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, HRFlowable
+    from fastapi.responses import Response as FResponse
+
+    buf = BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=A4, topMargin=18 * mm, bottomMargin=18 * mm,
+                            leftMargin=18 * mm, rightMargin=18 * mm, title=filename)
+    styles = getSampleStyleSheet()
+    styles.add(ParagraphStyle(name="EdTitle", fontName="Helvetica-Bold", fontSize=18, spaceAfter=4))
+    styles.add(ParagraphStyle(name="EdMeta", fontName="Helvetica", fontSize=9, textColor="#5C5C54", spaceAfter=2))
+    styles.add(ParagraphStyle(name="EdSection", fontName="Helvetica-Bold", fontSize=12, spaceBefore=12, spaceAfter=6))
+    styles.add(ParagraphStyle(name="EdQ", fontName="Helvetica", fontSize=10.5, spaceAfter=6, leading=15))
+    styles.add(ParagraphStyle(name="EdSmall", fontName="Helvetica", fontSize=9, textColor="#5C5C54", spaceAfter=8, leading=13))
+    flow = []
+    build_fn(flow, styles, {"Paragraph": Paragraph, "Spacer": Spacer, "HR": HRFlowable})
+    doc.build(flow)
+    buf.seek(0)
+    return FResponse(content=buf.read(), media_type="application/pdf",
+                     headers={"Content-Disposition": f'attachment; filename="{filename}"'})
+
+
+@router.get("/classes/{klass}/analytics/pdf")
+async def class_analytics_pdf(klass: str, user=Depends(require_teacher)):
+    db = get_db()
+    data = await class_analytics(klass, user)
+
+    def build(flow, styles, F):
+        flow.append(F["Paragraph"](f"Class {data['class']} — Performance Report", styles["EdTitle"]))
+        flow.append(F["Paragraph"](
+            f"Generated for a teacher review or parent meeting · {data['totals']['students']} students · "
+            f"{data['totals']['examsCovered']} exams covered", styles["EdMeta"]))
+        flow.append(F["HR"](width="100%", thickness=1, color="#E5E5E0", spaceBefore=6, spaceAfter=6))
+
+        flow.append(F["Paragraph"]("Summary", styles["EdSection"]))
+        t = data["totals"]
+        flow.append(F["Paragraph"](
+            f"Average score: <b>{t['aggregateScorePct']}%</b> &nbsp;&nbsp; Mean student score: <b>{t['meanStudentScorePct']}%</b> "
+            f"&nbsp;&nbsp; Answers analyzed: {t['answers']} &nbsp;&nbsp; Chapters assessed: {t['chaptersAssessed']}", styles["EdQ"]))
+
+        flow.append(F["Paragraph"]("Readiness mix", styles["EdSection"]))
+        for b in data["readinessMix"]:
+            flow.append(F["Paragraph"](f"{_esc(b['label'])}: {b['count']} student(s)", styles["EdSmall"]))
+
+        flow.append(F["Paragraph"]("Roster (sorted by score)", styles["EdSection"]))
+        for r in data["roster"]:
+            flow.append(F["Paragraph"](
+                f"<b>{_esc(r['name'])}</b> — {r['scorePct']}% ({_esc(r['readiness'])}) &nbsp;&nbsp; "
+                f"{r['marksAwarded']}/{r['marksPossible']} marks", styles["EdQ"]))
+
+        flow.append(F["Paragraph"]("Needs improvement", styles["EdSection"]))
+        if not data["needsImprovement"]:
+            flow.append(F["Paragraph"]("None — no chapter is currently below the 60% class-mastery threshold.", styles["EdSmall"]))
+        for c in data["needsImprovement"][:15]:
+            flow.append(F["Paragraph"](f"{_esc(c['chapter'])} ({_esc(c['subject'])}) — {c['masteryPct']}%", styles["EdSmall"]))
+
+    return _pdf_response(build, f"Edora_Class{klass}_Analytics.pdf")
+
+
+@router.get("/classes/{klass}/ai-report/pdf")
+async def ai_insights_pdf(klass: str, user=Depends(require_teacher)):
+    db = get_db()
+    revise = await _teaching_recommendations(db, klass)
+    risk = await students_at_risk(klass, user)
+    mistakes = await mistake_profile(klass, user)
+
+    def build(flow, styles, F):
+        flow.append(F["Paragraph"](f"Class {klass} — AI Insights Report", styles["EdTitle"]))
+        flow.append(F["Paragraph"](
+            "Rules-based analysis of real graded attempts — every finding traces back to a stated rule, no free-form AI chat.",
+            styles["EdMeta"]))
+        flow.append(F["HR"](width="100%", thickness=1, color="#E5E5E0", spaceBefore=6, spaceAfter=6))
+
+        flow.append(F["Paragraph"]("Chapters to revise before boards", styles["EdSection"]))
+        if not revise["items"]:
+            flow.append(F["Paragraph"]("No struggling chapters match the rules for this class right now.", styles["EdSmall"]))
+        for it in revise["items"]:
+            flow.append(F["Paragraph"](
+                f"<b>{_esc(it['chapter'])}</b> ({_esc(it['subject'])}) — {it['classAverageMasteryPct']}% mastery, "
+                f"<font color='#D95D39'>{it['severity'].upper()} PRIORITY</font>", styles["EdQ"]))
+            flow.append(F["Paragraph"](_esc(it["recommendedAction"]), styles["EdSmall"]))
+
+        flow.append(F["Paragraph"]("Students needing attention", styles["EdSection"]))
+        if not risk["items"]:
+            flow.append(F["Paragraph"]("Every student in this class is in the top readiness band.", styles["EdSmall"]))
+        for r in risk["items"][:15]:
+            weak = ", ".join(f"{w['chapter']} ({w['masteryPct']}%)" for w in r["weakChapters"]) or "—"
+            flow.append(F["Paragraph"](
+                f"<b>{_esc(r['name'])}</b> — {r['scorePct']}% ({_esc(r['readiness'])}) &nbsp; Weakest: {_esc(weak)}", styles["EdSmall"]))
+
+        flow.append(F["Paragraph"]("Mistake profile by subject", styles["EdSection"]))
+        if not mistakes["subjects"]:
+            flow.append(F["Paragraph"]("No mistake data available for this class.", styles["EdSmall"]))
+        for s in mistakes["subjects"]:
+            flow.append(F["Paragraph"](
+                f"<b>{_esc(s['subject'])}</b> — {s['mistakes']} mistakes in {s['answersAnalyzed']} answers "
+                f"({s['mistakeDensityPct']}% density), dominant: {_esc(s['dominantType']['type']) if s['dominantType'] else '—'}",
+                styles["EdSmall"]))
+
+    return _pdf_response(build, f"Edora_Class{klass}_AI_Insights.pdf")

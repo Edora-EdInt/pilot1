@@ -1,0 +1,40 @@
+{
+  "summary": "Iteration 7 tested the 4 follow-up enhancements: PDF exports (Class Analytics + AI Insights), Weak Chapter Alert banner, Practice Generator variety/shuffle, and the new Adaptive Live Session feature (teacher launch/monitor/close + public /practice student loop). Backend: created /app/backend/tests/test_adaptive_and_exports.py (37 tests) — all pass; full suite 156 passed / 1 skipped. Frontend: full Playwright walkthrough of teacher + student sides — all flows pass, including real-time polling monitor, level-change messaging, close/re-join errors, invalid-code toast, and 3x practice generation producing 3 distinct orderings. No functional defects found; 1 minor robustness issue (unhandled clipboard promise rejection) and 1 pre-existing test-hygiene fix applied in conftest.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "AdaptiveLiveSession copyCode", "issue": "navigator.clipboard.writeText() is called without .catch()/try-catch. When the clipboard write permission is denied (non-secure context, Firefox, or restricted browser), it throws NotAllowedError as an unhandled promise rejection which surfaces the React dev error overlay ('Failed to execute writeText on Clipboard: Write permission denied') covering the whole page. Recommend wrapping in try/catch with a toast.error fallback (and optionally a textarea fallback copy).", "selector": "[data-testid=\"als-copy-code-button\"]", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Class Analytics (Class 10)", "issues": ["Seeded data quality (not a code bug): Average score 2.5%, Readiness mix shows only 'At Risk x 5' so the bar is a solid red block with no legend segments, and the 'Needs improvement' list shows ~20 chapters all at 0% — visually alarming/low information. Consider capping the list length or adding an 'insufficient data' hint."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_adaptive_and_exports.py",
+    "/app/test_reports/pytest/iteration7_results.xml"
+  ],
+  "action_items": [
+    "Optional (LOW): add error handling/fallback around navigator.clipboard.writeText in AdaptiveLiveSession.copyCode so a denied clipboard permission shows a toast instead of an unhandled rejection."
+  ],
+  "critical_code_review_comments": [
+    "adaptive.py answer(): p['log'] is capped at 50 and participants are embedded in the session doc as a dict keyed by studentName — a session with many students and long logs will grow the single document; acceptable for a class-size session but worth noting if usage scales.",
+    "adaptive.py join(): participants are keyed by raw studentName, so two different students entering the same name share one adaptive state (by design for re-join/resume, but a name collision silently merges progress). Consider surfacing that on the teacher monitor.",
+    "adaptive.py answer(): correctAnswer is returned only after answering (join payload correctly omits it) — verified no answer leakage on join.",
+    "insights.py /alerts returns {count, items} where items is truncated to 5 while count is the untruncated total; Dashboard already handles this ('and N more'), just keep the two in sync if the contract changes."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_adaptive_and_exports.py (new)",
+    "/app/backend/tests/conftest.py (anon_client changed from session-scope to function-scope — an earlier test file was leaking an Authorization header into it, causing 10 false failures in test_insights.py::TestInsightsAuth when the whole suite ran)"
+  ],
+  "success_rate": {"backend": "100% (156 passed, 1 skipped)", "frontend": "100% of tested flows"},
+  "seed_data_creation": "Created 12 adaptive_sessions and participants named TEST_Learner/TEST_Floor/TEST_UiStudent via API+UI during testing; ALL deleted afterwards (adaptive_sessions collection is now empty). No exams/attempts/questions were modified.",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": true,
+  "test_credentials": "Teacher priya.math / Edora@2026; Admin admin / Admin@2026 (from /app/memory/test_credentials.md)",
+  "context_for_next_testing_agent": "Verified this round — Backend (all via /app/backend/tests/test_adaptive_and_exports.py): POST/GET/GET{code}/POST{code}/close on /api/adaptive/sessions are teacher-only (anon 401/403, admin 403 on all four), session code is 6 uppercase chars, <3 MCQs -> 400, cross-teacher scoping via teacherUsername filter, code is case-normalised, unknown code -> 404, no _id leakage. Public /api/adaptive/join + /answer: starts at Medium, 1 wrong -> down to Easy (changed=true, previousLevel/level correct), floors at Easy, correctAnswer NOT leaked on join, re-join resumes progress, blank name -> 400, answer without join -> 404, after close both join and answer -> 400 'This practice session has been closed by the teacher'. /api/insights/alerts returns {count, items[<=5]} with severity=='high' only, teacher-only. Both PDF endpoints return application/pdf with %PDF magic bytes + attachment disposition, teacher-only. practice/generate payload is {studentName, questionCount} (NOT studentId/count) and returns different orderings across 4 calls. Frontend: banner absent for priya.math (count=0, correct); with a mocked count=3 response the red banner renders '3 chapters flagged high-priority to revise ... Real Numbers (Mathematics · Class 10) — 31% mastery and 2 more' and navigates to /insights/ai. Both PDF buttons download real files (Edora_Class10_AI_Insights.pdf, Edora_Class10_Analytics.pdf); AI button is present before running any preset. Live Session tab: launch -> 6-char code + copy + 'Nobody has joined yet'; student /practice (no login) joins, 4 lettered options, level badge, running score, green check on correct / red X on wrong, 'Not quite. · back to Easy' verified live and 'Correct! · leveled up to Medium'/'to Hard' verified via mocked responses (messaging direction matches badge transitions); teacher monitor updated to 'Live participants (1) TEST_UiStudent Easy 2/4 · 50%' with NO page reload (4s poll); Close Session -> 'Closed' badge, Close button removed, New Session resets to launch form. Regression pages /insights/chapters, /trends, /patterns, /bank-health, /students, /exams all load clean (no error elements, no crash). NOTE: /insights/trends renders a minimal body (~1.6KB) until a subject is chosen — empty state, not a bug. Remember practice generate payload field names if writing new tests.",
+  "rca_of_the_issue": "No product defects found. The 10 pre-existing failures seen when running the whole backend suite were caused by conftest's session-scoped anon_client being mutated with an Authorization header by an earlier test module, making /insights/* anonymous-access assertions get 200 instead of 401; fixed by making anon_client function-scoped (test-only change, no app code touched)."
+}
