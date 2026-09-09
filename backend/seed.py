@@ -28,7 +28,7 @@ def _canon_type(t: str) -> str:
 
 def _qid(q: dict) -> str:
     key = f'{q.get("subject")}|{q.get("chapter")}|{q.get("question")}'
-    return hashlib.md5(key.encode("utf-8")).hexdigest()[:20]
+    return hashlib.sha256(key.encode("utf-8")).hexdigest()[:20]
 
 
 def _normalize(raw: dict) -> dict:

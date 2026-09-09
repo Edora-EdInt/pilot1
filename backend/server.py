@@ -1,5 +1,4 @@
 import os
-import random
 import string
 import secrets
 import asyncio
@@ -47,7 +46,7 @@ INTEGRITY_PENALTY = {
 
 # ── helpers ──
 def gen_code(n=6):
-    return "".join(random.choices(string.ascii_uppercase + string.digits, k=n))
+    return "".join(secrets.choice(string.ascii_uppercase + string.digits) for _ in range(n))
 
 
 def to_oid(value: str) -> ObjectId:

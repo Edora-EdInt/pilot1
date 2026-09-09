@@ -54,12 +54,15 @@ export default function StudentExam() {
             const { data } = await api.post(`/student/${attemptIdRef.current}/face-check`,
               { type: snap, token: attemptTokenRef.current });
             if (data && data.match === false) toast.warning("Identity check flagged — please stay in frame.");
-          } catch {}
+          } catch (err) {
+            console.warn("face-check request failed:", err);
+          }
           if (liveStreamRef.current) liveStreamRef.current.getTracks().forEach((t) => t.stop());
           liveStreamRef.current = null;
         }, 6000);
-      } catch {
-        // camera unavailable — silently skip face verification
+      } catch (err) {
+        // camera unavailable — silently skip face verification (logged for debugging)
+        console.warn("face verification camera unavailable:", err);
       }
     })();
     return () => {

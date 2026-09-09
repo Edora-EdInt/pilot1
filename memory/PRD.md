@@ -74,6 +74,18 @@ User picked 4 next-action items; all 4 built and tested (156/1 backend pytest, 1
   - Fixed post-testing: clipboard copy-code now has a try/catch + toast fallback; Class Analytics strong/weak chapter lists capped to 8 with "+N more" and a low-sample-size hint.
 
 
+## Code-quality review fixes (2026-02, security-critical subset only — 20-credit budget)
+Report flagged several items; only genuine security findings were fixed this pass (verified via direct python checks on `gen_code`/`_qid` + backend restart + frontend compile check, no full testing-agent run per approved budget-constrained plan):
+- `seed.py` `_qid()`: MD5 → SHA-256 (truncated to 20 chars, same as before). Only used for in-run de-dup during a one-time empty-collection seed, not for cross-run identity, so no migration risk.
+- `server.py` and `adaptive.py` `gen_code()` (exam/session join codes — real secrets): `random.choices` → `secrets.choice` per character. Unused `import random` removed from `server.py`.
+- `adaptive.py` `random.choice(docs)` (picking a practice question) and `selector.py`'s seeded `random.Random` (reproducible exam variants) were intentionally left untouched — not security-sensitive, changing them would be pure churn/behavior change.
+- `StudentExam.js` (face-check camera catch, face-check API catch) and `LiveProctoring.js` (poll catch): empty `catch {}` blocks now `console.warn` the error for debuggability while keeping the same silent/no-toast UX (face-check and live-poll failures shouldn't spam users).
+
+### Explicitly moved to backlog (not touched, from the same report)
+- React Hook dependency warnings across 6 Insights pages (lint-level, not a functional break).
+- Auth token storage off `localStorage` to httpOnly cookies — highest-risk item; previously caused login failures under this environment's CORS setup when tried cookie-only. Needs `integration_playbook_expert_v2` consult + careful CORS-safe design before attempting again.
+- All complexity/refactor, memoization (`useMemo` on `AuthContext` value, etc.), React-key style nits (most flagged spots inspected and found to be safe static/short lists), and TypeScript-migration suggestions — cleanliness only, no bug/vulnerability impact.
+
 ## Credentials
 See `/app/memory/test_credentials.md` for current admin/teacher login (username + password based, not email-first).
 
@@ -81,3 +93,4 @@ See `/app/memory/test_credentials.md` for current admin/teacher login (username 
 - Face-match on identity photo not implemented (photo is captured/stored only).
 - publish() trusts teacher-supplied qids (teacher-only; could validate against curriculum).
 - Selector `questionCount` field accepted but selection is marks-driven.
+- See "Code-quality review fixes" section above for the explicit backlog carried over from the latest review.

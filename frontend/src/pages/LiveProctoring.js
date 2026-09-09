@@ -23,7 +23,9 @@ export default function LiveProctoring() {
       setLive(data.live);
       setCount(data.count);
       setPulse((p) => !p);
-    } catch {}
+    } catch (err) {
+      console.warn("live proctoring poll failed:", err);
+    }
   };
 
   useEffect(() => {

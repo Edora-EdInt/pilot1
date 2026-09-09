@@ -12,6 +12,7 @@ real-time difficulty adjustment (descriptive answers would need AI grading,
 which is too slow for a live adaptive loop).
 """
 import random
+import secrets
 import string
 from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException, Depends
@@ -35,7 +36,7 @@ async def require_teacher(user: dict = Depends(get_current_user)) -> dict:
 
 
 def gen_code(n=6):
-    return "".join(random.choices(string.ascii_uppercase + string.digits, k=n))
+    return "".join(secrets.choice(string.ascii_uppercase + string.digits) for _ in range(n))
 
 
 def now_iso():
