@@ -353,4 +353,8 @@ class TestRegressionExistingEngine:
     def test_core_teacher_endpoints(self, teacher_client):
         for ep in ["/auth/me", "/exams", "/attempts", "/analytics/overview", "/questions/meta"]:
             r = teacher_client.get(f"{API}{ep}", timeout=90)
-            assert r.status_code in (200, 404), f"{ep} -> {r.status_code} {r.text[:200]}"
+            # 405 is expected for /questions/meta now that /questions/{qid} is a
+            # registered path pattern (edit/delete) — "meta" matches that pattern
+            # for GET, which isn't a handled method there, hence Method Not Allowed
+            # rather than a plain 404. Still confirms no 500/crash either way.
+            assert r.status_code in (200, 404, 405), f"{ep} -> {r.status_code} {r.text[:200]}"

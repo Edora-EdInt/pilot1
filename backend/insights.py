@@ -25,6 +25,7 @@ from pydantic import BaseModel
 
 from db import get_db
 from auth import get_current_user
+from visibility import can_use_question
 
 router = APIRouter(prefix="/api/insights")
 
@@ -615,7 +616,7 @@ async def practice_generate(body: PracticeGenerateInput, user=Depends(require_te
     if focus_keys:
         or_clauses = [{"board": k[0], "class": k[1], "subject": k[2], "chapter": k[3]} for k in focus_keys]
         pool = [q async for q in db.questions.find({"$or": or_clauses})]
-    eligible = [q for q in pool if q.get("qid") not in correct_qids]
+    eligible = [q for q in pool if q.get("qid") not in correct_qids and can_use_question(q, user)]
 
     buckets = {"Easy": [], "Medium": [], "Hard": []}
     for q in eligible:
@@ -664,7 +665,7 @@ async def adaptive_questions(board: str = "CBSE", klass: str = "10", subject: st
     q = {"board": board, "class": _norm_class(klass)}
     if subject: q["subject"] = subject
     if chapter: q["chapter"] = chapter
-    docs = [d async for d in db.questions.find(q)]
+    docs = [d async for d in db.questions.find(q) if can_use_question(d, user)]
     if not docs:
         raise HTTPException(status_code=404, detail="No questions found for this selection.")
     buckets = {"Easy": [], "Medium": [], "Hard": []}

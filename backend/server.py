@@ -15,6 +15,7 @@ from fastapi.responses import JSONResponse
 from bson import ObjectId
 
 from db import get_db
+from visibility import can_use_question
 from models import (RegisterInput, LoginInput, Blueprint, PublishInput,
                     StartAttemptInput, IntegrityEventInput, SubmitInput,
                     QuestionCreateInput, TeacherCreateInput, TeacherUpdateInput, now_iso)
@@ -76,24 +77,6 @@ def sanitize_question(q):
         "difficulty": q.get("difficulty"),
         "objective": q.get("objective", False),
     }
-
-
-def _can_use_question(q, user):
-    """Manually-added questions may be restricted to 'teachers who teach this
-    same class & subject' (matched against the viewing teacher's own
-    Teaching Portfolio). Missing/'all' visibility (every seeded/AI-generated
-    question, and any manually added as bank-wide) stays open to everyone,
-    exactly as before this feature existed. The creating teacher can always
-    use their own question."""
-    if q.get("visibility") != "class_subject":
-        return True
-    if str(q.get("ownerId")) == str(user.get("id")):
-        return True
-    teacher_subjects = set(user.get("subjects") or [])
-    teacher_class_digits = {"".join(ch for ch in str(c) if ch.isdigit()) for c in (user.get("classes") or [])}
-    if not teacher_subjects or not teacher_class_digits:
-        return False
-    return q.get("subject") in teacher_subjects and str(q.get("class")) in teacher_class_digits
 
 
 def compute_integrity(events):
@@ -311,7 +294,7 @@ async def _fetch_pool(bp: dict, user: dict):
     pool = []
     async for doc in db.questions.find(q):
         d = clean(doc)
-        if not _can_use_question(d, user):
+        if not can_use_question(d, user):
             continue
         d["id"] = d["qid"]
         pool.append(d)
@@ -721,7 +704,7 @@ async def create_question(body: QuestionCreateInput, user=Depends(require_teache
             raise HTTPException(status_code=400, detail="Select the correct answer.")
     elif not body.answer.strip():
         raise HTTPException(status_code=400, detail="Provide a model answer.")
-    if body.visibility not in ("all", "class_subject"):
+    if body.visibility not in ("all", "class_subject", "only_me"):
         raise HTTPException(status_code=400, detail="Invalid visibility option.")
 
     q = {
@@ -743,6 +726,65 @@ async def create_question(body: QuestionCreateInput, user=Depends(require_teache
     await db.questions.insert_one(dict(q))
     q.pop("_id", None)
     return q
+
+
+@api.put("/questions/{qid}")
+async def update_question(qid: str, body: QuestionCreateInput, user=Depends(require_teacher)):
+    """A teacher may only edit a question they personally added — the seeded
+    bank and old AI-generated questions have no owner on record and cannot
+    be touched here. Exams already published keep their own saved copy of
+    the question, so editing/deleting the bank entry afterward never
+    changes an exam a student has already taken or will take."""
+    db = get_db()
+    existing = await db.questions.find_one({"qid": qid})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Question not found.")
+    if str(existing.get("ownerId")) != str(user["id"]):
+        raise HTTPException(status_code=403, detail="You can only edit questions you added yourself.")
+
+    objective = body.questionType in ("MCQ", "Assertion Reason")
+    opts = [o.strip() for o in body.options if o.strip()]
+    if objective:
+        if len(opts) < 2:
+            raise HTTPException(status_code=400, detail="Provide at least 2 options.")
+        if not body.correctAnswer.strip():
+            raise HTTPException(status_code=400, detail="Select the correct answer.")
+    elif not body.answer.strip():
+        raise HTTPException(status_code=400, detail="Provide a model answer.")
+    if body.visibility not in ("all", "class_subject", "only_me"):
+        raise HTTPException(status_code=400, detail="Invalid visibility option.")
+
+    q = {
+        "board": body.board, "class": int(body.grade), "subject": body.subject.strip(),
+        "chapter": body.chapter.strip(), "difficulty": body.difficulty,
+        "marks": int(body.marks), "questionType": body.questionType,
+        "question": body.question.strip(),
+        "options": opts if objective else [],
+        "correctAnswer": body.correctAnswer.strip() if objective else "",
+        "answer": "" if objective else body.answer.strip(),
+        "sourceYear": None, "objective": objective,
+        "visibility": body.visibility, "ownerId": user["id"], "ownerName": user.get("name", ""),
+        "createdAt": existing.get("createdAt", now_iso()),
+    }
+    q["qid"] = _qid(q)
+    if q["qid"] != qid and await db.questions.find_one({"qid": q["qid"]}):
+        raise HTTPException(status_code=400, detail="Another question with this exact text already exists in the bank.")
+    await db.questions.delete_one({"qid": qid})
+    await db.questions.insert_one(dict(q))
+    q.pop("_id", None)
+    return q
+
+
+@api.delete("/questions/{qid}")
+async def delete_question(qid: str, user=Depends(require_teacher)):
+    db = get_db()
+    existing = await db.questions.find_one({"qid": qid})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Question not found.")
+    if str(existing.get("ownerId")) != str(user["id"]):
+        raise HTTPException(status_code=403, detail="You can only delete questions you added yourself.")
+    await db.questions.delete_one({"qid": qid})
+    return {"ok": True}
 
 
 @api.get("/questions")
@@ -768,7 +810,7 @@ async def list_questions(subject: Optional[str] = None, chapter: Optional[str] =
     out = []
     async for doc in db.questions.find(q).sort("_id", -1).limit(300):
         d = clean(doc)
-        if _can_use_question(d, user):
+        if can_use_question(d, user):
             out.append(d)
     return out
 

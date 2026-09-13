@@ -20,6 +20,7 @@ from pydantic import BaseModel
 
 from db import get_db
 from auth import get_current_user
+from visibility import can_use_question
 
 router = APIRouter(prefix="/api/adaptive")
 
@@ -85,9 +86,17 @@ async def _pick_question(db, session, participant):
                    "objective": True, "questionType": "MCQ", "qid": {"$nin": participant.get("usedQids", [])}}
     if session.get("chapter"):
         base_filter["chapter"] = session["chapter"]
-    docs = [d async for d in db.questions.find({**base_filter, "difficulty": level})]
+    # A joining student has no Teaching Portfolio of their own, so a
+    # restricted question's content is checked against the portfolio of
+    # the teacher who started this session.
+    teacher = await db.users.find_one({"username": session["teacherUsername"]}) or {}
+    if teacher.get("_id"):
+        teacher["id"] = str(teacher["_id"])
+    docs = [d for d in [d async for d in db.questions.find({**base_filter, "difficulty": level})]
+            if can_use_question(d, teacher)]
     if not docs:
-        docs = [d async for d in db.questions.find(base_filter)]
+        docs = [d for d in [d async for d in db.questions.find(base_filter)]
+                if can_use_question(d, teacher)]
     if not docs:
         return None
     return random.choice(docs)
