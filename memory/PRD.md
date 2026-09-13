@@ -74,6 +74,15 @@ User picked 4 next-action items; all 4 built and tested (156/1 backend pytest, 1
   - Fixed post-testing: clipboard copy-code now has a try/catch + toast fallback; Class Analytics strong/weak chapter lists capped to 8 with "+N more" and a low-sample-size hint.
 
 
+## Manual Question Entry replaces AI Question Studio (2026-02, 10-credit budget)
+Per user decision (explicit ask_human), the "Only me" private visibility option was HELD BACK for now — only 2 visibility choices ship.
+- **Removed**: AI Question Studio page/route (`/studio`), its sidebar link, and the backend `POST /api/questions/generate` endpoint + `ai.generate_questions()` (fully deleted, not just hidden — confirmed 404).
+- **Added**: `/questions` page (`AddQuestion.js`) — a manual "Add Question" form (board/class/subject/chapter/difficulty/marks/type/text + options+correct-answer OR model-answer) plus a "Browse Question Bank" list below it.
+- **Visibility choice on save**: "Entire question bank — every teacher" (`all`, default, same as all pre-existing behavior) or "Teachers who teach this same class & subject" (`class_subject`, matched against the viewing teacher's own Teaching Portfolio `subjects`/`classes`, using the same class-string-to-digit normalization pattern already used in `insights.py`'s alert matching). The creating teacher can always use their own question regardless of match.
+- **Enforcement scope (explicit trade-off, not a bug)**: visibility is enforced only in the two places that matter day-to-day — `GET /api/questions` (bank browse) and `POST /api/exams/generate` (`_fetch_pool`/`_can_use_question` in `server.py`). Insights pages, Practice Generator, and Adaptive practice still pull from the whole bank regardless of a question's visibility — documented backlog, not fixed this pass (would need a much bigger rework, same scale as the original Insights build).
+- Every pre-existing question (seeded + previously AI-generated) has no `visibility` field and is treated as `all` — nothing retroactively hidden.
+- Tested: 12/12 new backend tests (validation, duplicate rejection, cross-teacher visibility via both bank-list and exam-generate) + 158/158 full backend regression + full frontend UI flow, all 100% pass (see `/app/test_reports/iteration_8.json`). Minor non-blocking code-review notes from testing agent (bank list doesn't auto-refresh filters after save; `list_questions` limits then filters instead of filtering in the Mongo query; no UI hint for a teacher with an empty Teaching Portfolio) — left as backlog, not bugs.
+
 ## Code-quality review fixes (2026-02, security-critical subset only — 20-credit budget)
 Report flagged several items; only genuine security findings were fixed this pass (verified via direct python checks on `gen_code`/`_qid` + backend restart + frontend compile check, no full testing-agent run per approved budget-constrained plan):
 - `seed.py` `_qid()`: MD5 → SHA-256 (truncated to 20 chars, same as before). Only used for in-run de-dup during a one-time empty-collection seed, not for cross-run identity, so no migration risk.
@@ -94,3 +103,4 @@ See `/app/memory/test_credentials.md` for current admin/teacher login (username 
 - publish() trusts teacher-supplied qids (teacher-only; could validate against curriculum).
 - Selector `questionCount` field accepted but selection is marks-driven.
 - See "Code-quality review fixes" section above for the explicit backlog carried over from the latest review.
+- See "Manual Question Entry" section above for the explicit visibility-enforcement gap (Insights/Practice/Adaptive still bank-wide) and the "Only me" option held back pending a future pass.

@@ -95,12 +95,16 @@ class SubmitInput(BaseModel):
     answers: Dict[str, str] = {}
 
 
-class QuestionGenInput(BaseModel):
+class QuestionCreateInput(BaseModel):
+    board: str = "CBSE"
+    grade: int = 10
     subject: str
     chapter: str
     questionType: str = "Short Answer"
     difficulty: str = "Medium"
-    count: int = 5
-    marks: int = 3
-    board: str = "CBSE"
-    grade: int = 10
+    marks: int = 1
+    question: str
+    options: List[str] = []
+    correctAnswer: str = ""
+    answer: str = ""
+    visibility: str = "all"  # "all" | "class_subject" (per-teacher restriction)

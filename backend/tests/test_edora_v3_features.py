@@ -8,7 +8,7 @@ import uuid
 import pytest
 import requests
 
-from conftest import API, TEACHER, STUDENT, blueprint
+from conftest import API, TEACHER, STUDENT, blueprint, _login
 
 
 def _bare():
@@ -105,54 +105,81 @@ def exam_code(teacher):
     return p.json()["code"]
 
 
-# ── AI QUESTION GENERATION ──
-class TestQuestionGeneration:
-    def test_generate_inserts_into_bank(self, teacher):
-        before = teacher.get(f"{API}/questions/stats", timeout=30).json()["total"]
-        r = teacher.post(f"{API}/questions/generate", json={
-            "subject": "Mathematics", "chapter": "Real Numbers", "questionType": "Short Answer",
-            "difficulty": "Medium", "count": 3, "marks": 3}, timeout=180)
-        assert r.status_code == 200, r.text[:500]
-        d = r.json()
-        assert d["generated"] >= 1, d
-        assert d["added"] >= 1, d
-        assert len(d["questions"]) == d["added"]
-        for q in d["questions"]:
-            assert "_id" not in q
-            assert q["qid"]
-            assert q["question"].strip()
-            assert q["subject"] == "Mathematics"
-            assert q["chapter"] == "Real Numbers"
-            assert q["questionType"] == "Short Answer"
-            assert q["marks"] == 3
-            assert q["aiGenerated"] is True
-        after = teacher.get(f"{API}/questions/stats", timeout=30).json()["total"]
-        assert after >= before + d["added"], (before, after, d["added"])
-
-    def test_generate_mcq_has_options(self, teacher):
-        r = teacher.post(f"{API}/questions/generate", json={
-            "subject": "Science", "chapter": "Light – Reflection and Refraction",
-            "questionType": "MCQ", "difficulty": "Easy", "count": 2, "marks": 1}, timeout=180)
-        assert r.status_code == 200, r.text[:500]
-        qs = r.json()["questions"]
-        if not qs:
-            pytest.skip("all generated MCQs were duplicates of the bank")
-        for q in qs:
-            assert q["objective"] is True
-            assert len(q["options"]) >= 2, q
-            assert q["correctAnswer"], q
-
-    def test_generate_requires_teacher(self):
+# ── MANUAL QUESTION ENTRY (teacher) ──
+class TestManualQuestionEntry:
+    def test_add_requires_teacher(self):
         anon = _bare()
-        payload = {"subject": "Mathematics", "chapter": "Real Numbers", "count": 1}
-        assert anon.post(f"{API}/questions/generate", json=payload, timeout=60).status_code == 401
+        payload = {"subject": "Mathematics", "chapter": "TEST_Manual", "grade": 10,
+                   "questionType": "Short Answer", "answer": "x"}
+        assert anon.post(f"{API}/questions", json=payload, timeout=30).status_code == 401
         st = _bare()
         st.post(f"{API}/auth/login", json=STUDENT, timeout=30)
-        assert st.post(f"{API}/questions/generate", json=payload, timeout=60).status_code == 403
+        assert st.post(f"{API}/questions", json=payload, timeout=30).status_code == 403
 
-    def test_generate_validation_422(self, teacher):
-        r = teacher.post(f"{API}/questions/generate", json={"subject": "Mathematics"}, timeout=30)
-        assert r.status_code == 422, r.status_code
+    def test_objective_question_requires_options_and_correct_answer(self, teacher):
+        r = teacher.post(f"{API}/questions", json={
+            "subject": "Mathematics", "chapter": "TEST_Manual", "grade": 10,
+            "questionType": "MCQ", "question": f"TEST_Q_{uuid.uuid4().hex[:8]}?",
+            "options": ["only one"], "correctAnswer": "A"}, timeout=30)
+        assert r.status_code == 400, r.text
+
+    def test_descriptive_question_requires_model_answer(self, teacher):
+        r = teacher.post(f"{API}/questions", json={
+            "subject": "Mathematics", "chapter": "TEST_Manual", "grade": 10,
+            "questionType": "Short Answer", "question": f"TEST_Q_{uuid.uuid4().hex[:8]}?",
+            "answer": ""}, timeout=30)
+        assert r.status_code == 400, r.text
+
+    def test_add_bank_wide_question_and_duplicate_rejected(self, teacher):
+        qtext = f"TEST_Q_bankwide_{uuid.uuid4().hex[:8]}?"
+        payload = {"subject": "Mathematics", "chapter": "TEST_Manual_BankWide", "grade": 10,
+                  "questionType": "Short Answer", "marks": 2, "question": qtext,
+                  "answer": "model answer text", "visibility": "all"}
+        r = teacher.post(f"{API}/questions", json=payload, timeout=30)
+        assert r.status_code == 200, r.text
+        d = r.json()
+        assert d["qid"] and d["visibility"] == "all" and d["ownerName"]
+        dup = teacher.post(f"{API}/questions", json=payload, timeout=30)
+        assert dup.status_code == 400, dup.text
+
+    def test_class_subject_restricted_question_visibility(self, admin_client):
+        # Two fresh teachers: one whose portfolio matches the restricted question, one that doesn't.
+        uid = uuid.uuid4().hex[:8]
+        matching = {"name": "TEST_Matching", "username": f"test_match_{uid}", "password": "Test@2026",
+                   "email": f"test_match_{uid}@edora.io",
+                   "subjects": ["Mathematics"], "classes": ["Class 11"]}
+        other = {"name": "TEST_Other", "username": f"test_other_{uid}", "password": "Test@2026",
+                 "email": f"test_other_{uid}@edora.io",
+                 "subjects": ["Physics"], "classes": ["Class 9"]}
+        for body in (matching, other):
+            r = admin_client.post(f"{API}/admin/teachers", json=body, timeout=30)
+            assert r.status_code == 200, r.text
+        match_client, _ = _login({"username": matching["username"], "password": matching["password"]})
+        other_client, _ = _login({"username": other["username"], "password": other["password"]})
+
+        chapter = f"TEST_Manual_Restricted_{uid}"
+        qtext = f"TEST_Q_restricted_{uid}?"
+        created = match_client.post(f"{API}/questions", json={
+            "subject": "Mathematics", "chapter": chapter, "grade": 11,
+            "questionType": "Short Answer", "marks": 2, "question": qtext,
+            "answer": "model answer", "visibility": "class_subject"}, timeout=30)
+        assert created.status_code == 200, created.text
+        qid = created.json()["qid"]
+
+        owner_list = match_client.get(f"{API}/questions", params={"chapter": chapter}, timeout=30).json()
+        assert any(q["qid"] == qid for q in owner_list), owner_list
+
+        other_list = other_client.get(f"{API}/questions", params={"chapter": chapter}, timeout=30).json()
+        assert not any(q["qid"] == qid for q in other_list), other_list
+
+        bp = blueprint("Mathematics", marks=2, variants=1, chapters=[chapter])
+        bp["curriculum"]["grade"] = 11
+        gen_other = other_client.post(f"{API}/exams/generate", json=bp, timeout=60)
+        assert gen_other.status_code == 400, gen_other.text  # no eligible questions for this teacher
+
+        gen_owner = match_client.post(f"{API}/exams/generate", json=bp, timeout=60)
+        assert gen_owner.status_code == 200, gen_owner.text
+        assert any(q["qid"] == qid for q in gen_owner.json()["variants"][0]["questions"])
 
 
 # ── PDF EXPORT ──

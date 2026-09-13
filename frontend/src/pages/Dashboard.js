@@ -87,7 +87,7 @@ export default function Dashboard() {
                 <div className="space-y-1.5">
                   <button onClick={() => nav("/generate")} className="w-full text-left text-sm px-3 py-2 rounded-lg bg-line/40 hover:bg-line text-ink flex items-center justify-between transition-colors">Create Assessment <ArrowUpRight className="w-3.5 h-3.5" /></button>
                   <button onClick={() => nav("/exams")} className="w-full text-left text-sm px-3 py-2 rounded-lg bg-line/40 hover:bg-line text-ink flex items-center justify-between transition-colors">View Previous Exams <ArrowUpRight className="w-3.5 h-3.5" /></button>
-                  <button onClick={() => nav("/studio")} className="w-full text-left text-sm px-3 py-2 rounded-lg bg-line/40 hover:bg-line text-ink flex items-center justify-between transition-colors">Question Bank <ArrowUpRight className="w-3.5 h-3.5" /></button>
+                  <button onClick={() => nav("/questions")} className="w-full text-left text-sm px-3 py-2 rounded-lg bg-line/40 hover:bg-line text-ink flex items-center justify-between transition-colors">Question Bank <ArrowUpRight className="w-3.5 h-3.5" /></button>
                 </div>
               </Card>
             ))}

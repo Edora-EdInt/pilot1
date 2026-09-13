@@ -11,7 +11,7 @@ import PublishedExams from "./pages/PublishedExams";
 import Attempts from "./pages/Attempts";
 import Analytics from "./pages/Analytics";
 import LiveProctoring from "./pages/LiveProctoring";
-import QuestionStudio from "./pages/QuestionStudio";
+import AddQuestion from "./pages/AddQuestion";
 import ManageTeachers from "./pages/ManageTeachers";
 import StudentExam from "./pages/StudentExam";
 import AdaptivePractice from "./pages/AdaptivePractice";
@@ -59,7 +59,7 @@ function Shell() {
       <Route path="/dashboard" element={<TeacherRoute><Dashboard /></TeacherRoute>} />
       <Route path="/generate" element={<TeacherRoute><GenerateExam /></TeacherRoute>} />
       <Route path="/exams" element={<TeacherRoute><PublishedExams /></TeacherRoute>} />
-      <Route path="/studio" element={<TeacherRoute><QuestionStudio /></TeacherRoute>} />
+      <Route path="/questions" element={<TeacherRoute><AddQuestion /></TeacherRoute>} />
       <Route path="/proctoring" element={<TeacherRoute><LiveProctoring /></TeacherRoute>} />
       <Route path="/attempts" element={<TeacherRoute><Attempts /></TeacherRoute>} />
       <Route path="/analytics" element={<TeacherRoute><Analytics /></TeacherRoute>} />

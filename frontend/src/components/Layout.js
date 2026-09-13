@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
 import {
-  LayoutDashboard, FilePlus2, BookCheck, Users, BarChart3, LogOut, Menu, Radio, Wand2, UserCog,
+  LayoutDashboard, FilePlus2, BookCheck, Users, BarChart3, LogOut, Menu, Radio, BookPlus, UserCog,
   BookOpen, LineChart, ClipboardList, HeartPulse, UserSquare2, Sparkles, Shuffle, SlidersHorizontal,
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
@@ -13,7 +13,7 @@ const TEACHER_NAV_GROUPS = [
     items: [
       { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
       { to: "/generate", label: "Generate Exam", icon: FilePlus2 },
-      { to: "/studio", label: "AI Question Studio", icon: Wand2 },
+      { to: "/questions", label: "Add Question", icon: BookPlus },
       { to: "/exams", label: "Published Exams", icon: BookCheck },
       { to: "/proctoring", label: "Live Proctoring", icon: Radio },
       { to: "/attempts", label: "Attempts & Integrity", icon: Users },

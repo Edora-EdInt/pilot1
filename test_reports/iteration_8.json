@@ -1,0 +1,24 @@
+{
+  "summary": "Full backend + frontend verification of new Add Question feature replacing AI Question Studio. 12/12 new backend tests passed (POST /api/questions validation, duplicate rejection, visibility whitelist, GET /api/questions visibility filtering across 3 teacher personas, exam-generate visibility enforcement, removed AI endpoint 404). Frontend UI verified end-to-end: sidebar no longer shows 'AI Question Studio' and now has 'Add Question' -> /questions; add-question-page renders; visibility select has EXACTLY 2 options (all, class_subject) with no 'Only me'/private; form correctly swaps between objective (4 options + correct answer select) and descriptive (model answer textarea) inputs when Question type changes; MCQ validation (<2 options) shows toast; valid MCQ save with visibility=class_subject succeeds, produces success toast, form clears, item appears in Browse Question Bank with 'Class & subject' badge and owner name; descriptive empty-answer validation toast fires; bank search filter works. Cross-teacher visibility fully confirmed end-to-end via API: Priya-created class_subject Math/Class-11 question is visible to Priya and to a matching Math/Class-11 teacher, but NOT to a Physics/Class-9-10 teacher, and does not surface in that non-matching teacher's exam generation.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_add_question_visibility.py",
+    "/app/test_reports/pytest/add_question_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "AddQuestion.js: after saving a bank question, the search filter is not re-triggered — a newly saved question only appears if the current filter matches it. Acceptable UX but worth noting.",
+    "server.py list_questions: filters via post-query Python loop with limit(300) BEFORE visibility filter — a class_subject-heavy bank could return <300 visible rows to matching teachers. Not a functional bug, but pagination/visibility should be pushed into the Mongo query eventually.",
+    "server.py _can_use_question: teachers with empty subjects OR empty classes on their portfolio are hard-locked out of class_subject questions (returns False). Intended, but the UI on Add Question page does not surface this — a freshly-provisioned teacher would see 'No questions match these filters' with no explanation."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_add_question_visibility.py"
+  ],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "test_credentials": "priya.math / Edora@2026 (teacher, Math Class 11-12); admin / Admin@2026; dynamically created test teachers (Physics Class 9-10 for non-match, Mathematics Class 11 for match)",
+  "seed_data_creation": "Test created a few TEST_* prefixed questions and 2 ephemeral teachers (testphy_*, testmath_*) via /api/admin/teachers during the pytest run. Not cleaned up automatically — safe to purge with prefix filter.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "New endpoints POST/GET /api/questions and helper _can_use_question in server.py. Old /api/questions/generate is removed and returns 404. Test file test_add_question_visibility.py can be re-used as regression. Frontend Add Question page (/questions) has full data-testid coverage: add-question-page, aq-{subject,chapter,class,type,difficulty,marks,question,option-0..3,correct-answer,answer,visibility,save-button}, bank-filter-{subject,chapter,search}, bank-list, bank-item-{qid}, bank-empty."
+}

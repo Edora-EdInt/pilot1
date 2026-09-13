@@ -2,6 +2,7 @@ import os
 import string
 import secrets
 import asyncio
+from typing import Optional
 from datetime import datetime, timezone
 
 from dotenv import load_dotenv
@@ -15,15 +16,14 @@ from bson import ObjectId
 
 from db import get_db
 from models import (RegisterInput, LoginInput, Blueprint, PublishInput,
-                    StartAttemptInput, IntegrityEventInput, SubmitInput, QuestionGenInput,
-                    TeacherCreateInput, TeacherUpdateInput, now_iso)
+                    StartAttemptInput, IntegrityEventInput, SubmitInput,
+                    QuestionCreateInput, TeacherCreateInput, TeacherUpdateInput, now_iso)
 from auth import (hash_password, verify_password, create_access_token,
                   create_refresh_token, set_auth_cookies, clear_auth_cookies,
                   get_current_user, require_teacher, require_admin)
 from selector import QuestionSelector
-from seed import seed_all
-from ai import (grade_descriptive, generate_insight, assess_identity,
-                verify_face, generate_questions)
+from seed import seed_all, _qid
+from ai import (grade_descriptive, generate_insight, assess_identity, verify_face)
 from insights import router as insights_router
 from adaptive import router as adaptive_router
 
@@ -76,6 +76,24 @@ def sanitize_question(q):
         "difficulty": q.get("difficulty"),
         "objective": q.get("objective", False),
     }
+
+
+def _can_use_question(q, user):
+    """Manually-added questions may be restricted to 'teachers who teach this
+    same class & subject' (matched against the viewing teacher's own
+    Teaching Portfolio). Missing/'all' visibility (every seeded/AI-generated
+    question, and any manually added as bank-wide) stays open to everyone,
+    exactly as before this feature existed. The creating teacher can always
+    use their own question."""
+    if q.get("visibility") != "class_subject":
+        return True
+    if str(q.get("ownerId")) == str(user.get("id")):
+        return True
+    teacher_subjects = set(user.get("subjects") or [])
+    teacher_class_digits = {"".join(ch for ch in str(c) if ch.isdigit()) for c in (user.get("classes") or [])}
+    if not teacher_subjects or not teacher_class_digits:
+        return False
+    return q.get("subject") in teacher_subjects and str(q.get("class")) in teacher_class_digits
 
 
 def compute_integrity(events):
@@ -278,7 +296,7 @@ async def questions_stats(user=Depends(require_teacher)):
 
 
 # ── EXAM GENERATION (teacher) ──
-async def _fetch_pool(bp: dict):
+async def _fetch_pool(bp: dict, user: dict):
     db = get_db()
     q = {}
     c = bp.get("curriculum", {})
@@ -293,6 +311,8 @@ async def _fetch_pool(bp: dict):
     pool = []
     async for doc in db.questions.find(q):
         d = clean(doc)
+        if not _can_use_question(d, user):
+            continue
         d["id"] = d["qid"]
         pool.append(d)
     return pool
@@ -301,7 +321,7 @@ async def _fetch_pool(bp: dict):
 @api.post("/exams/generate")
 async def generate_exam(bp: Blueprint, user=Depends(require_teacher)):
     blueprint = bp.model_dump()
-    pool = await _fetch_pool(blueprint)
+    pool = await _fetch_pool(blueprint, user)
     if not pool:
         raise HTTPException(status_code=400, detail="No questions match the selected curriculum.")
     selector = QuestionSelector(pool)
@@ -689,28 +709,68 @@ async def proctoring_live(user=Depends(require_teacher)):
     return {"live": out, "count": len(out)}
 
 
-# ── AI QUESTION GENERATION (teacher) ──
-@api.post("/questions/generate")
-async def questions_generate(body: QuestionGenInput, user=Depends(require_teacher)):
-    from seed import _qid
-    count = max(1, min(body.count, 10))
-    generated = await generate_questions(
-        body.subject, body.chapter, body.questionType, body.difficulty,
-        count, body.marks, body.board, body.grade)
-    if not generated:
-        raise HTTPException(status_code=502, detail="AI could not generate questions. Please try again.")
+# ── MANUAL QUESTION ENTRY (teacher) ──
+@api.post("/questions")
+async def create_question(body: QuestionCreateInput, user=Depends(require_teacher)):
+    objective = body.questionType in ("MCQ", "Assertion Reason")
+    opts = [o.strip() for o in body.options if o.strip()]
+    if objective:
+        if len(opts) < 2:
+            raise HTTPException(status_code=400, detail="Provide at least 2 options.")
+        if not body.correctAnswer.strip():
+            raise HTTPException(status_code=400, detail="Select the correct answer.")
+    elif not body.answer.strip():
+        raise HTTPException(status_code=400, detail="Provide a model answer.")
+    if body.visibility not in ("all", "class_subject"):
+        raise HTTPException(status_code=400, detail="Invalid visibility option.")
+
+    q = {
+        "board": body.board, "class": int(body.grade), "subject": body.subject.strip(),
+        "chapter": body.chapter.strip(), "difficulty": body.difficulty,
+        "marks": int(body.marks), "questionType": body.questionType,
+        "question": body.question.strip(),
+        "options": opts if objective else [],
+        "correctAnswer": body.correctAnswer.strip() if objective else "",
+        "answer": "" if objective else body.answer.strip(),
+        "sourceYear": None, "objective": objective,
+        "visibility": body.visibility, "ownerId": user["id"], "ownerName": user.get("name", ""),
+        "createdAt": now_iso(),
+    }
+    q["qid"] = _qid(q)
     db = get_db()
-    inserted = []
-    for q in generated:
-        q["qid"] = _qid(q)
-        existing = await db.questions.find_one({"qid": q["qid"]})
-        if existing:
-            continue
-        await db.questions.insert_one(dict(q))
-        item = dict(q)
-        item.pop("_id", None)
-        inserted.append(item)
-    return {"generated": len(generated), "added": len(inserted), "questions": inserted}
+    if await db.questions.find_one({"qid": q["qid"]}):
+        raise HTTPException(status_code=400, detail="This question already exists in the bank.")
+    await db.questions.insert_one(dict(q))
+    q.pop("_id", None)
+    return q
+
+
+@api.get("/questions")
+async def list_questions(subject: Optional[str] = None, chapter: Optional[str] = None,
+                          grade: Optional[int] = None, questionType: Optional[str] = None,
+                          difficulty: Optional[str] = None, search: Optional[str] = None,
+                          user=Depends(require_teacher)):
+    """Browse the question bank, honoring each question's 'who can use it' setting."""
+    db = get_db()
+    q = {}
+    if subject:
+        q["subject"] = subject
+    if chapter:
+        q["chapter"] = chapter
+    if grade is not None:
+        q["class"] = grade
+    if questionType:
+        q["questionType"] = questionType
+    if difficulty:
+        q["difficulty"] = difficulty
+    if search:
+        q["question"] = {"$regex": search, "$options": "i"}
+    out = []
+    async for doc in db.questions.find(q).sort("_id", -1).limit(300):
+        d = clean(doc)
+        if _can_use_question(d, user):
+            out.append(d)
+    return out
 
 
 # ── PDF EXPORT (teacher) ──
